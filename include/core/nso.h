@@ -94,10 +94,9 @@ typedef struct {
     u32 version;                ///< Usually set to 0 or a branch instruction (0x14000002). Set to 1 or 0x14000003 if a NsoNnSdkVersion block is available.
     s32 mod_offset;             ///< NsoModHeader block offset. Almost always set to 0x8 (the size of this struct), but it could also reference another segment (e.g. .rodata).
     s32 nnsdk_version_offset;   ///< NsoNnSdkVersion block offset. Only valid if version is set to 1 or 0x14000003.
-    u8 reserved[0x4];
 } NsoModStart;
 
-NXDT_ASSERT(NsoModStart, 0x10);
+NXDT_ASSERT(NsoModStart, 0xC);
 
 /// This is essentially a replacement for the PT_DYNAMIC program header available in ELF binaries.
 /// All offsets are signed 32-bit values relative to the start of this header.
@@ -112,9 +111,15 @@ typedef struct  {
     s32 eh_frame_hdr_start_offset;
     s32 eh_frame_hdr_end_offset;
     s32 module_object_offset;       ///< Typically equal to bss_start_offset.
+    s32 relro_start_offset;         ///< [19.0.0+].
+    s32 relro_end_offset;           ///< [19.0.0+].
+    s32 nx_debuglink_start_offset;  ///< [19.0.0+].
+    s32 nx_debuglink_end_offset;    ///< [19.0.0+].
+    s32 gnu_build_id_start_offset;  ///< [19.0.0+].
+    s32 gnu_build_id_end_offset;    ///< [19.0.0+].
 } NsoModHeader;
 
-NXDT_ASSERT(NsoModHeader, 0x1C);
+NXDT_ASSERT(NsoModHeader, 0x34);
 
 /// Only available in 17.0.0+ binaries. Holds the nnSdk version used to build this NRO.
 /// This is usually placed right after the NsoModHeader block.
