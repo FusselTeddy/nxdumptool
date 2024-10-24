@@ -30,6 +30,7 @@
 #include <core/title.h>
 #include <core/bfttf.h>
 #include <core/nxdt_bfsar.h>
+#include <core/system_update.h>
 #include <core/devoptab/nxdt_devoptab.h>
 #include <core/fatfs/ff.h>
 
@@ -271,6 +272,9 @@ bool utilsInitializeResources(void)
         /* Initialize BFSAR interface. */
         //if (!bfsarInitialize()) break;
 
+        /* Initialize system update interface. */
+        if (!systemUpdateInitialize()) break;
+
         /* Mount eMMC BIS System partition. */
         if (!utilsMountEmmcBisSystemPartitionStorage()) break;
 
@@ -357,6 +361,9 @@ void utilsCloseResources(void)
 
         /* Unmount eMMC BIS System partition. */
         utilsUnmountEmmcBisSystemPartitionStorage();
+
+        /* Deinitialize system update interface. */
+        systemUpdateExit();
 
         /* Deinitialize BFSAR interface. */
         //bfsarExit();
