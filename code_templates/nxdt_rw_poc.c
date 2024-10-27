@@ -29,6 +29,7 @@
 #include <core/cert.h>
 #include <core/usb.h>
 #include <core/devoptab/nxdt_devoptab.h>
+#include <core/system_update.h>
 
 #define BLOCK_SIZE      USB_TRANSFER_BUFFER_SIZE
 #define WAIT_TIME_LIMIT 30
@@ -74,8 +75,8 @@ typedef enum {
     MenuId_BrowseHFS            = 4,
     MenuId_UserTitles           = 5,
     MenuId_UserTitlesSubMenu    = 6,
-    MenuId_NSPTitleTypes        = 7,
-    MenuId_NSP                  = 8,
+    MenuId_NspTitleTypes        = 7,
+    MenuId_Nsp                  = 8,
     MenuId_TicketTitleTypes     = 9,
     MenuId_Ticket               = 10,
     MenuId_NcaTitleTypes        = 11,
@@ -83,7 +84,8 @@ typedef enum {
     MenuId_NcaFsSections        = 13,
     MenuId_NcaFsSectionsSubMenu = 14,
     MenuId_SystemTitles         = 15,
-    MenuId_Count                = 16
+    MenuId_SystemUpdate         = 16,
+    MenuId_Count                = 17
 } MenuId;
 
 typedef struct
@@ -158,6 +160,11 @@ typedef struct {
     const char *base_out_path;
 } FsBrowserHighlightedEntriesThreadData;
 
+typedef struct {
+    SharedThreadData shared_thread_data;
+    SystemUpdateDumpContext *sys_upd_dump_ctx;
+} SystemUpdateThreadData;
+
 /* Function prototypes. */
 
 static void utilsScanPads(void);
@@ -224,6 +231,8 @@ static bool saveNintendoContentArchive(void *userdata);
 static bool saveNintendoContentArchiveFsSection(void *userdata);
 static bool browseNintendoContentArchiveFsSection(void *userdata);
 
+static bool saveSystemUpdateDump(void *userdata);
+
 static bool fsBrowser(const char *mount_name, const char *base_out_path);
 static bool fsBrowserGetDirEntries(const char *dir_path, FsBrowserEntry **out_entries, u32 *out_entry_count);
 static bool fsBrowserDumpFile(const char *dir_path, const FsBrowserEntry *entry, const char *base_out_path);
@@ -253,6 +262,8 @@ static void extractedRomFsReadThreadFunc(void *arg);
 static void fsBrowserFileReadThreadFunc(void *arg);
 static void fsBrowserHighlightedEntriesReadThreadFunc(void *arg);
 static bool fsBrowserHighlightedEntriesReadThreadLoop(SharedThreadData *shared_thread_data, const char *dir_path, const FsBrowserEntry *entries, u32 entries_count, const char *base_out_path, void *buf1, void *buf2);
+
+static void systemUpdateReadThreadFunc(void *arg);
 
 static void genericWriteThreadFunc(void *arg);
 
@@ -723,7 +734,7 @@ static MenuElement *g_nspMenuElements[] = {
 };
 
 static Menu g_nspMenu = {
-    .id = MenuId_NSP,
+    .id = MenuId_Nsp,
     .parent = NULL,
     .selected = 0,
     .scroll = 0,
@@ -900,7 +911,7 @@ static MenuElement *g_userTitlesSubMenuElements[] = {
     &(MenuElement){
         .str = "nsp dump options",
         .child_menu = &(Menu){
-            .id = MenuId_NSPTitleTypes,
+            .id = MenuId_NspTitleTypes,
             .parent = NULL,
             .selected = 0,
             .scroll = 0,
@@ -966,6 +977,26 @@ static Menu g_systemTitlesMenu = {
     .elements = NULL
 };
 
+static MenuElement *g_dumpSystemUpdateMenuElements[] = {
+    &(MenuElement){
+        .str = "start dump",
+        .child_menu = NULL,
+        .task_func = &saveSystemUpdateDump,
+        .element_options = NULL,
+        .userdata = NULL
+    },
+    &g_storageMenuElement,
+    NULL
+};
+
+static Menu g_dumpSystemUpdateMenu = {
+    .id = MenuId_SystemUpdate,
+    .parent = NULL,
+    .selected = 0,
+    .scroll = 0,
+    .elements = g_dumpSystemUpdateMenuElements
+};
+
 static MenuElement *g_rootMenuElements[] = {
     &(MenuElement){
         .str = "gamecard menu",
@@ -990,6 +1021,13 @@ static MenuElement *g_rootMenuElements[] = {
     &(MenuElement){
         .str = "system titles menu",
         .child_menu = &g_systemTitlesMenu,
+        .task_func = NULL,
+        .element_options = NULL,
+        .userdata = NULL
+    },
+    &(MenuElement){
+        .str = "dump system update",
+        .child_menu = &g_dumpSystemUpdateMenu,
         .task_func = NULL,
         .element_options = NULL,
         .userdata = NULL
@@ -1066,7 +1104,7 @@ int main(int argc, char *argv[])
             u32 child_id = selected_element->child_menu->id;
 
             g_titleTypesMenuElements[0]->child_menu = g_titleTypesMenuElements[1]->child_menu = \
-            g_titleTypesMenuElements[2]->child_menu = g_titleTypesMenuElements[3]->child_menu = (child_id == MenuId_NSPTitleTypes ? &g_nspMenu : \
+            g_titleTypesMenuElements[2]->child_menu = g_titleTypesMenuElements[3]->child_menu = (child_id == MenuId_NspTitleTypes ? &g_nspMenu : \
                                                                                                 (child_id == MenuId_TicketTitleTypes ? &g_ticketMenu : \
                                                                                                 (child_id == MenuId_NcaTitleTypes ? &g_ncaMenu : NULL)));
         }
@@ -1097,12 +1135,12 @@ int main(int argc, char *argv[])
                 consolePrint("title info:\n\n");
                 consolePrint("name: %s\n", app_metadata->lang_entry.name);
                 consolePrint("publisher: %s\n", app_metadata->lang_entry.author);
-                if (cur_menu->id == MenuId_UserTitlesSubMenu || cur_menu->id == MenuId_NSPTitleTypes || cur_menu->id == MenuId_TicketTitleTypes || \
+                if (cur_menu->id == MenuId_UserTitlesSubMenu || cur_menu->id == MenuId_NspTitleTypes || cur_menu->id == MenuId_TicketTitleTypes || \
                     cur_menu->id == MenuId_NcaTitleTypes) consolePrint("title id: %016lX\n", app_metadata->title_id);
                 consolePrint("______________________________\n\n");
             }
 
-            if (cur_menu->id == MenuId_NSP || cur_menu->id == MenuId_Ticket || cur_menu->id == MenuId_Nca || \
+            if (cur_menu->id == MenuId_Nsp || cur_menu->id == MenuId_Ticket || cur_menu->id == MenuId_Nca || \
                 cur_menu->id == MenuId_NcaFsSections || cur_menu->id == MenuId_NcaFsSectionsSubMenu)
             {
                 if (cur_menu->id != MenuId_NcaFsSections && cur_menu->id != MenuId_NcaFsSectionsSubMenu && (title_info->previous || title_info->next))
@@ -1123,7 +1161,7 @@ int main(int argc, char *argv[])
                 consolePrint("size: %s\n", title_info->size_str);
                 consolePrint("______________________________\n\n");
 
-                if (cur_menu->id == MenuId_NSP) g_nspMenuElements[0]->userdata = title_info;
+                if (cur_menu->id == MenuId_Nsp) g_nspMenuElements[0]->userdata = title_info;
 
                 if (cur_menu->id == MenuId_Ticket) g_ticketMenuElements[0]->userdata = title_info;
 
@@ -1245,7 +1283,7 @@ int main(int argc, char *argv[])
                     error = !titleGetUserApplicationData(app_metadata->title_id, &user_app_data);
                     if (error) consolePrint("\nfailed to get user application data for %016lX!\n", app_metadata->title_id);
                 } else
-                if (child_menu->id == MenuId_NSP || child_menu->id == MenuId_Ticket || child_menu->id == MenuId_Nca)
+                if (child_menu->id == MenuId_Nsp || child_menu->id == MenuId_Ticket || child_menu->id == MenuId_Nca)
                 {
                     u32 title_type = (cur_menu->id != MenuId_SystemTitles ? *((u32*)selected_element->userdata) : NcmContentMetaType_Unknown);
 
@@ -1477,12 +1515,12 @@ int main(int argc, char *argv[])
                 g_titleTypesMenuElements[0]->child_menu = g_titleTypesMenuElements[1]->child_menu = \
                 g_titleTypesMenuElements[2]->child_menu = g_titleTypesMenuElements[3]->child_menu = NULL;
             } else
-            if (cur_menu->id == MenuId_NSPTitleTypes || cur_menu->id == MenuId_TicketTitleTypes || cur_menu->id == MenuId_NcaTitleTypes)
+            if (cur_menu->id == MenuId_NspTitleTypes || cur_menu->id == MenuId_TicketTitleTypes || cur_menu->id == MenuId_NcaTitleTypes)
             {
                 title_info = NULL;
                 title_info_idx = title_info_count = 0;
             } else
-            if (cur_menu->id == MenuId_NSP)
+            if (cur_menu->id == MenuId_Nsp)
             {
                 g_nspMenuElements[0]->userdata = NULL;
             } else
@@ -1554,13 +1592,13 @@ int main(int argc, char *argv[])
             consolePrint("press any button to go back");
             utilsWaitForButtonPress(0);
         } else
-        if (((btn_down & (HidNpadButton_L)) || (btn_held & HidNpadButton_ZL)) && (cur_menu->id == MenuId_NSP || cur_menu->id == MenuId_Ticket || cur_menu->id == MenuId_Nca) && title_info->previous)
+        if (((btn_down & (HidNpadButton_L)) || (btn_held & HidNpadButton_ZL)) && (cur_menu->id == MenuId_Nsp || cur_menu->id == MenuId_Ticket || cur_menu->id == MenuId_Nca) && title_info->previous)
         {
             title_info = title_info->previous;
             title_info_idx--;
             switchNcaListTitle(&cur_menu, &element_count, title_info);
         } else
-        if (((btn_down & (HidNpadButton_R)) || (btn_held & HidNpadButton_ZR)) && (cur_menu->id == MenuId_NSP || cur_menu->id == MenuId_Ticket || cur_menu->id == MenuId_Nca) && title_info->next)
+        if (((btn_down & (HidNpadButton_R)) || (btn_held & HidNpadButton_ZR)) && (cur_menu->id == MenuId_Nsp || cur_menu->id == MenuId_Ticket || cur_menu->id == MenuId_Nca) && title_info->next)
         {
             title_info = title_info->next;
             title_info_idx++;
@@ -3591,6 +3629,41 @@ end:
         consolePrint("press any button to continue\n");
         utilsWaitForButtonPress(0);
     }
+
+    return success;
+}
+
+static bool saveSystemUpdateDump(void *userdata)
+{
+    NX_IGNORE_ARG(userdata);
+
+    SystemUpdateDumpContext sys_upd_dump_ctx = {0};
+    SystemUpdateThreadData sys_upd_thread_data = {0};
+    SharedThreadData *shared_thread_data = &(sys_upd_thread_data.shared_thread_data);
+
+    char size_str[16] = {0};
+
+    bool success = false;
+
+    if (!systemUpdateInitializeDumpContext(&sys_upd_dump_ctx))
+    {
+        consolePrint("system update dump ctx init failed!\n");
+        goto end;
+    }
+
+    sys_upd_thread_data.sys_upd_dump_ctx = &sys_upd_dump_ctx;
+    shared_thread_data->total_size = sys_upd_dump_ctx.total_size;
+
+    utilsGenerateFormattedSizeString((double)sys_upd_dump_ctx.total_size, size_str, sizeof(size_str));
+    consolePrint("sysupd description: %.*s\nsysupd size: 0x%lX (%s)\nsysupd content count: %u\n", (int)sizeof(sys_upd_dump_ctx.version_file.display_title), \
+                                                                                                  sys_upd_dump_ctx.version_file.display_title, sys_upd_dump_ctx.total_size, \
+                                                                                                  size_str, sys_upd_dump_ctx.content_count);
+    consoleRefresh();
+
+    success = spanDumpThreads(systemUpdateReadThreadFunc, genericWriteThreadFunc, &sys_upd_thread_data);
+
+end:
+    systemUpdateFreeDumpContext(&sys_upd_dump_ctx);
 
     return success;
 }
@@ -5983,6 +6056,255 @@ end:
     if (tmp_path) free(tmp_path);
 
     return !shared_thread_data->read_error;
+}
+
+static void systemUpdateReadThreadFunc(void *arg)
+{
+    void *buf1 = NULL, *buf2 = NULL;
+    SystemUpdateThreadData *sys_upd_thread_data = (SystemUpdateThreadData*)arg;
+    SharedThreadData *shared_thread_data = &(sys_upd_thread_data->shared_thread_data);
+
+    SystemUpdateDumpContext *sys_upd_dump_ctx = sys_upd_thread_data->sys_upd_dump_ctx;
+
+    char sys_upd_path[FS_MAX_PATH] = {0}, *filename = NULL;
+    size_t filename_len = 0;
+
+    u64 free_space = 0;
+    u32 dev_idx = g_storageMenuElementOption.selected;
+
+    u64 nca_filesize = 0;
+    char *nca_filename = NULL;
+
+    buf1 = usbAllocatePageAlignedBuffer(BLOCK_SIZE);
+    buf2 = usbAllocatePageAlignedBuffer(BLOCK_SIZE);
+
+    snprintf(sys_upd_path, MAX_ELEMENTS(sys_upd_path), "/%.*s (%s)", (int)sizeof(sys_upd_dump_ctx->version_file.display_title),
+                                                                     sys_upd_dump_ctx->version_file.display_title, utilsIsDevelopmentUnit() ? "Dev" : "Prod");
+    filename = generateOutputGameCardFileName("System Update", sys_upd_path, false);
+    filename_len = (filename ? strlen(filename) : 0);
+
+    if (!shared_thread_data->total_size || !buf1 || !buf2 || !filename)
+    {
+        shared_thread_data->read_error = true;
+        goto end;
+    }
+
+    utilsReplaceIllegalCharacters(strrchr(filename, '/') + 1, dev_idx == 0);
+
+    if (dev_idx != 1)
+    {
+        if (!utilsGetFileSystemStatsByPath(filename, NULL, &free_space))
+        {
+            consolePrint("failed to retrieve free space from selected device\n");
+            shared_thread_data->read_error = true;
+        }
+
+        if (!shared_thread_data->read_error && shared_thread_data->total_size >= free_space)
+        {
+            consolePrint("dump size exceeds free space\n");
+            shared_thread_data->read_error = true;
+        }
+    } else {
+        if (!usbStartExtractedFsDump(shared_thread_data->total_size, filename))
+        {
+            consolePrint("failed to send extracted fs info to host\n");
+            shared_thread_data->read_error = true;
+        }
+    }
+
+    if (shared_thread_data->read_error)
+    {
+        condvarWakeAll(&g_writeCondvar);
+        goto end;
+    }
+
+    /* Loop through all file entries. */
+    while(sys_upd_dump_ctx->content_idx < sys_upd_dump_ctx->content_count)
+    {
+        if (nca_filename)
+        {
+            free(nca_filename);
+            nca_filename = NULL;
+        }
+
+        /* Check if the transfer has been cancelled by the user. */
+        if (shared_thread_data->transfer_cancelled)
+        {
+            condvarWakeAll(&g_writeCondvar);
+            break;
+        }
+
+        if (dev_idx != 1)
+        {
+            /* Wait until the previous data chunk has been written */
+            mutexLock(&g_fileMutex);
+            if (shared_thread_data->data_size && !shared_thread_data->write_error) condvarWait(&g_readCondvar, &g_fileMutex);
+            mutexUnlock(&g_fileMutex);
+
+            if (shared_thread_data->write_error) break;
+
+            /* Close file. */
+            if (shared_thread_data->fp)
+            {
+                fclose(shared_thread_data->fp);
+                shared_thread_data->fp = NULL;
+                if (dev_idx == 0) utilsCommitSdCardFileSystemChanges();
+            }
+        }
+
+        /* Retrieve system update content file information. */
+        shared_thread_data->read_error = (!systemUpdateGetCurrentContentFileSizeFromDumpContext(sys_upd_dump_ctx, &nca_filesize) || !nca_filesize || \
+                                          !(nca_filename = systemUpdateGetCurrentContentFileNameFromDumpContext(sys_upd_dump_ctx)));
+        if (shared_thread_data->read_error)
+        {
+            condvarWakeAll(&g_writeCondvar);
+            break;
+        }
+
+        /* Generate output path. */
+        snprintf(sys_upd_path, MAX_ELEMENTS(sys_upd_path), "%s/%s", filename, nca_filename);
+        utilsReplaceIllegalCharacters(sys_upd_path + filename_len + 1, dev_idx == 0);
+
+        if (dev_idx == 1)
+        {
+            /* Wait until the previous data chunk has been written */
+            mutexLock(&g_fileMutex);
+            if (shared_thread_data->data_size && !shared_thread_data->write_error) condvarWait(&g_readCondvar, &g_fileMutex);
+            mutexUnlock(&g_fileMutex);
+
+            if (shared_thread_data->write_error) break;
+
+            /* Send current file properties */
+            shared_thread_data->read_error = !usbSendFileProperties(nca_filesize, sys_upd_path);
+        } else {
+            /* Create directory tree. */
+            utilsCreateDirectoryTree(sys_upd_path, false);
+
+            if (dev_idx == 0)
+            {
+                /* Create ConcatenationFile if we're dealing with a big file + SD card as the output storage. */
+                if (nca_filesize > FAT32_FILESIZE_LIMIT && !utilsCreateConcatenationFile(sys_upd_path))
+                {
+                    consolePrint("failed to create concatenation file for \"%s\"!\n", sys_upd_path);
+                    shared_thread_data->read_error = true;
+                }
+            } else {
+                /* Don't handle file chunks on FAT12/FAT16/FAT32 formatted UMS devices. */
+                if (g_umsDevices[dev_idx - 2].fs_type < UsbHsFsDeviceFileSystemType_exFAT && nca_filesize > FAT32_FILESIZE_LIMIT)
+                {
+                    consolePrint("split dumps not supported for FAT12/16/32 volumes in UMS devices (yet)\n");
+                    shared_thread_data->read_error = true;
+                }
+            }
+
+            if (!shared_thread_data->read_error)
+            {
+                /* Open output file. */
+                shared_thread_data->read_error = ((shared_thread_data->fp = fopen(sys_upd_path, "wb")) == NULL);
+                if (!shared_thread_data->read_error)
+                {
+                    /* Set file size. */
+                    setvbuf(shared_thread_data->fp, NULL, _IONBF, 0);
+                    ftruncate(fileno(shared_thread_data->fp), (off_t)nca_filesize);
+                } else {
+                    consolePrint("failed to open \"%s\" for writing!\n", sys_upd_path);
+                }
+            }
+        }
+
+        if (shared_thread_data->read_error)
+        {
+            condvarWakeAll(&g_writeCondvar);
+            break;
+        }
+
+        for(u64 offset = 0, blksize = BLOCK_SIZE; offset < nca_filesize; offset += blksize)
+        {
+            if (blksize > (nca_filesize - offset)) blksize = (nca_filesize - offset);
+
+            /* Check if the transfer has been cancelled by the user. */
+            if (shared_thread_data->transfer_cancelled)
+            {
+                condvarWakeAll(&g_writeCondvar);
+                break;
+            }
+
+            /* Read current file data chunk. */
+            shared_thread_data->read_error = !systemUpdateReadCurrentContentFileFromDumpContext(sys_upd_dump_ctx, buf1, blksize);
+            if (shared_thread_data->read_error)
+            {
+                condvarWakeAll(&g_writeCondvar);
+                break;
+            }
+
+            /* Wait until the previous file data chunk has been written. */
+            mutexLock(&g_fileMutex);
+
+            if (shared_thread_data->data_size && !shared_thread_data->write_error) condvarWait(&g_readCondvar, &g_fileMutex);
+
+            if (shared_thread_data->write_error)
+            {
+                mutexUnlock(&g_fileMutex);
+                break;
+            }
+
+            /* Update shared object. */
+            shared_thread_data->data = buf1;
+            shared_thread_data->data_size = blksize;
+
+            /* Swap buffers. */
+            buf1 = buf2;
+            buf2 = shared_thread_data->data;
+
+            /* Wake up the write thread to continue writing data. */
+            mutexUnlock(&g_fileMutex);
+            condvarWakeAll(&g_writeCondvar);
+        }
+
+        if (shared_thread_data->read_error || shared_thread_data->write_error || shared_thread_data->transfer_cancelled) break;
+    }
+
+    if (!shared_thread_data->read_error && !shared_thread_data->write_error && !shared_thread_data->transfer_cancelled)
+    {
+        /* Wait until the previous file data chunk has been written. */
+        mutexLock(&g_fileMutex);
+        if (shared_thread_data->data_size) condvarWait(&g_readCondvar, &g_fileMutex);
+        mutexUnlock(&g_fileMutex);
+
+        if (dev_idx == 1) usbEndExtractedFsDump();
+
+        shared_thread_data->read_error = !systemUpdateIsDumpContextFinished(sys_upd_dump_ctx);
+        if (!shared_thread_data->read_error)
+        {
+            consolePrint("successfully saved system update data to \"%s\"\n", filename);
+        } else {
+            consolePrint("unexpected sys upd dump ctx error\n");
+        }
+
+        consoleRefresh();
+    }
+
+end:
+    if (shared_thread_data->fp)
+    {
+        fclose(shared_thread_data->fp);
+        shared_thread_data->fp = NULL;
+
+        if ((shared_thread_data->read_error || shared_thread_data->write_error || shared_thread_data->transfer_cancelled) && dev_idx != 1)
+        {
+            utilsDeleteDirectoryRecursively(filename);
+            if (dev_idx == 0) utilsCommitSdCardFileSystemChanges();
+        }
+    }
+
+    if (nca_filename) free(nca_filename);
+
+    if (filename) free(filename);
+
+    if (buf2) free(buf2);
+    if (buf1) free(buf1);
+
+    threadExit();
 }
 
 static void genericWriteThreadFunc(void *arg)

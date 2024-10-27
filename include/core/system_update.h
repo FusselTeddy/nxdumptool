@@ -24,6 +24,7 @@
 #ifndef __SYSTEM_UPDATE_H__
 #define __SYSTEM_UPDATE_H__
 
+#include "hos_version_structs.h"
 #include "nca.h"
 #include "title.h"
 
@@ -32,13 +33,14 @@ extern "C" {
 #endif
 
 typedef struct {
-    u64 cur_size;               ///< Current dump size.
-    u64 total_size;             ///< Total dump size.
-    u32 content_idx;            ///< Current content index.
-    u32 content_count;          ///< Total content count.
-    u64 cur_content_offset;     ///< Current content offset.
-    Sha256Context sha256_ctx;   ///< SHA-256 hash context. Used to verify dumped NCAs.
-    NcaContext **nca_ctxs;      ///< NCA context pointer array for all system update contents. Used to read content data.
+    u64 cur_size;                   ///< Current dump size.
+    u64 total_size;                 ///< Total dump size.
+    u32 content_idx;                ///< Current content index.
+    u32 content_count;              ///< Total content count.
+    u64 cur_content_offset;         ///< Current content offset.
+    Sha256Context sha256_ctx;       ///< SHA-256 hash context. Used to verify dumped NCAs.
+    NcaContext **nca_ctxs;          ///< NCA context pointer array for all system update contents. Used to read content data.
+    SystemVersionFile version_file; ///< File data from the SystemVersion title.
 } SystemUpdateDumpContext;
 
 /// Initializes the system update interface.

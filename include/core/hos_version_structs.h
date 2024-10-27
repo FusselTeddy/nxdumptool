@@ -92,6 +92,23 @@ typedef struct {
 
 NXDT_ASSERT(Version, 0x4);
 
+/// Used by the SystemVersion title file (0100000000000809).
+typedef struct {
+    u8 major;
+    u8 minor;
+    u8 micro;
+    u8 reserved_1;
+    u8 rev_major;
+    u8 rev_minor;
+    u8 reserved_2[0x2];
+    char platform[0x20];        ///< e.g. "NX".
+    char hash[0x40];            ///< e.g. "52971eebbba7ab9e6e23d73753aa63e0c3794b16".
+    char display_version[0x18]; ///< e.g. "19.0.0".
+    char display_title[0x80];   ///< e.g. "NintendoSDK Firmware for NX 19.0.0-4.0".
+} SystemVersionFile;
+
+NXDT_ASSERT(SystemVersionFile, 0x100);
+
 #ifdef __cplusplus
 }
 #endif

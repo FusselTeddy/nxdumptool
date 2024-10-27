@@ -22,6 +22,9 @@
 #include <core/nxdt_utils.h>
 #include <core/system_update.h>
 #include <core/cnmt.h>
+#include <core/romfs.h>
+
+#define SYSTEM_VERSION_FILE_PATH    "/file"
 
 /* Global variables. */
 
@@ -40,6 +43,8 @@ static bool systemUpdateProcessContentMetaInfo(SystemUpdateDumpContext *ctx, con
 static bool systemUpdateProcessContentRecords(SystemUpdateDumpContext *ctx, TitleInfo *title_info);
 
 static int systemUpdateNcaContextSortFunction(const void *a, const void *b);
+
+static bool systemUpdateGetSystemVersionFileData(SystemUpdateDumpContext *ctx);
 
 NX_INLINE NcaContext *systemUpdateGetCurrentNcaContextFromDumpContext(SystemUpdateDumpContext *ctx);
 
@@ -175,6 +180,7 @@ bool systemUpdateReadCurrentContentFileFromDumpContext(SystemUpdateDumpContext *
         return false;
     }
 
+    u8 nca_hash[SHA256_HASH_SIZE] = {0};
     bool success = false;
 
     /* Read NCA data. */
@@ -199,9 +205,9 @@ bool systemUpdateReadCurrentContentFileFromDumpContext(SystemUpdateDumpContext *
     if (ctx->cur_content_offset >= nca_ctx->content_size)
     {
         /* Verify SHA-256 hash for this content. */
-        sha256ContextGetHash(&(ctx->sha256_ctx), nca_ctx->hash);
+        sha256ContextGetHash(&(ctx->sha256_ctx), nca_hash);
 
-        if (memcmp(nca_ctx->hash, nca_ctx->content_id.c, sizeof(nca_ctx->content_id.c)) != 0)
+        if (memcmp(nca_hash, nca_ctx->content_id.c, sizeof(nca_ctx->content_id.c)) != 0)
         {
             LOG_MSG_ERROR("SHA-256 checksum mismatch for %s NCA \"%s\"! (title %016lX).", titleGetNcmContentTypeName(nca_ctx->content_type), \
                                                                                           nca_ctx->content_id_str, nca_ctx->title_id);
@@ -248,15 +254,18 @@ static bool _systemUpdateInitializeDumpContext(SystemUpdateDumpContext *ctx)
 
     /* Manually add SystemUpdate content records. */
     /* The SystemUpdate CNMT doesn't reference itself. */
-    success = systemUpdateProcessContentRecords(ctx, g_systemUpdateTitleInfo);
-    if (!success)
+    if (!systemUpdateProcessContentRecords(ctx, g_systemUpdateTitleInfo))
     {
         LOG_MSG_ERROR("Failed to process SystemUpdate content records!");
         goto end;
     }
 
     /* Sort NCA contexts. */
-    qsort(ctx->nca_ctxs, ctx->content_count, sizeof(NcaContext*), &systemUpdateNcaContextSortFunction);
+    if (ctx->content_count > 1) qsort(ctx->nca_ctxs, ctx->content_count, sizeof(NcaContext*), &systemUpdateNcaContextSortFunction);
+
+    /* Retrieve system version file data. */
+    success = systemUpdateGetSystemVersionFileData(ctx);
+    if (!success) LOG_MSG_ERROR("Failed to retrieve SystemVersion file data!");
 
 end:
     /* Free output context, if needed. */
@@ -412,6 +421,74 @@ static int systemUpdateNcaContextSortFunction(const void *a, const void *b)
     }
 
     return 0;
+}
+
+static bool systemUpdateGetSystemVersionFileData(SystemUpdateDumpContext *ctx)
+{
+    if (!systemUpdateIsValidDumpContext(ctx))
+    {
+        LOG_MSG_ERROR("Invalid parameters!");
+        return false;
+    }
+
+    NcaContext *nca_ctx = NULL;
+
+    RomFileSystemContext romfs_ctx = {0};
+    RomFileSystemFileEntry *romfs_file_entry = NULL;
+
+    bool success = false;
+
+    /* Loop through our NCA contexts until we find the Data NCA for the SystemVersion title. */
+    for(u32 i = 0; i < ctx->content_count; i++)
+    {
+        nca_ctx = ctx->nca_ctxs[i];
+        if (nca_ctx && nca_ctx->title_id == SYSTEM_VERSION_TID && nca_ctx->content_type == NcmContentType_Data) break;
+        nca_ctx = NULL;
+    }
+
+    if (!nca_ctx)
+    {
+        LOG_MSG_ERROR("Unable to find Data NCA for SystemVersion title!");
+        goto end;
+    }
+
+    LOG_MSG_DEBUG("Found Data NCA \"%s\" for SystemVersion title.", nca_ctx->content_id_str);
+
+    /* Initialize RomFS context. */
+    if (!romfsInitializeContext(&romfs_ctx, &(nca_ctx->fs_ctx[0]), NULL))
+    {
+        LOG_MSG_ERROR("Failed to initialize RomFS context for SystemVersion Data NCA!");
+        goto end;
+    }
+
+    /* Get RomFS file entry. */
+    if (!(romfs_file_entry = romfsGetFileEntryByPath(&romfs_ctx, SYSTEM_VERSION_FILE_PATH)))
+    {
+        LOG_MSG_ERROR("Failed to retrieve RomFS file entry for SystemVersion Data NCA!");
+        goto end;
+    }
+
+    /* Validate file size. */
+    if (romfs_file_entry->size != sizeof(ctx->version_file))
+    {
+        LOG_MSG_ERROR("Invalid RomFS file entry size in SystemVersion Data NCA! Got 0x%lX, expected 0x%lX.", romfs_file_entry->size, sizeof(ctx->version_file));
+        goto end;
+    }
+
+    /* Read SystemVersion file data. */
+    success = romfsReadFileEntryData(&romfs_ctx, romfs_file_entry, &(ctx->version_file), sizeof(ctx->version_file), 0);
+    if (!success)
+    {
+        LOG_MSG_ERROR("Failed to read SystemVersion file data!");
+        goto end;
+    }
+
+    LOG_DATA_DEBUG(&(ctx->version_file), sizeof(ctx->version_file), "SystemVersion file data:");
+
+end:
+    romfsFreeContext(&romfs_ctx);
+
+    return success;
 }
 
 NX_INLINE NcaContext *systemUpdateGetCurrentNcaContextFromDumpContext(SystemUpdateDumpContext *ctx)
