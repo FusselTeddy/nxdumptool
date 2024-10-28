@@ -237,7 +237,7 @@ static remap_entry_ctx_t *save_remap_get_map_entry(remap_storage_ctx_t *ctx, u64
     return NULL;
 }
 
-static u32 save_remap_read(remap_storage_ctx_t *ctx, void *buffer, u64 offset, size_t count)
+static u64 save_remap_read(remap_storage_ctx_t *ctx, void *buffer, u64 offset, size_t count)
 {
     if (!ctx || (ctx->type == STORAGE_BYTES && !ctx->file) || (ctx->type == STORAGE_DUPLEX && !ctx->duplex) || (ctx->type != STORAGE_BYTES && ctx->type != STORAGE_DUPLEX) || !buffer || !count)
     {
@@ -253,42 +253,43 @@ static u32 save_remap_read(remap_storage_ctx_t *ctx, void *buffer, u64 offset, s
     }
 
     u64 in_pos = offset;
-    u32 out_pos = 0;
-    u32 remaining = count;
+    u64 out_pos = 0;
+    u64 remaining = count;
 
-    UINT br = 0;
-    FRESULT fr;
+    int res = 0;
 
     while(remaining)
     {
         u64 entry_pos = (in_pos - entry->virtual_offset);
-        u32 bytes_to_read = ((entry->virtual_offset_end - in_pos) < remaining ? (u32)(entry->virtual_offset_end - in_pos) : remaining);
+        u64 bytes_to_read = ((entry->virtual_offset_end - in_pos) < remaining ? (entry->virtual_offset_end - in_pos) : remaining);
+        u64 read_bytes = 0;
 
         switch (ctx->type)
         {
             case STORAGE_BYTES:
-                fr = f_lseek(ctx->file, ctx->base_storage_offset + entry->physical_offset + entry_pos);
-                if (fr || f_tell(ctx->file) != (ctx->base_storage_offset + entry->physical_offset + entry_pos))
+                res = fseek(ctx->file, ctx->base_storage_offset + entry->physical_offset + entry_pos, SEEK_SET);
+                if (res || ftell(ctx->file) != (ctx->base_storage_offset + entry->physical_offset + entry_pos))
                 {
-                    LOG_MSG_ERROR("Failed to seek to offset 0x%lX in savefile! (%u).", ctx->base_storage_offset + entry->physical_offset + entry_pos, fr);
+                    LOG_MSG_ERROR("Failed to seek to offset 0x%lX in savefile! (%d).", ctx->base_storage_offset + entry->physical_offset + entry_pos, errno);
                     return out_pos;
                 }
 
-                fr = f_read(ctx->file, (u8*)buffer + out_pos, bytes_to_read, &br);
-                if (fr || br != bytes_to_read)
+                read_bytes = fread((u8*)buffer + out_pos, 1, bytes_to_read, ctx->file);
+                if (read_bytes != bytes_to_read)
                 {
-                    LOG_MSG_ERROR("Failed to read %u bytes chunk from offset 0x%lX in savefile! (%u).", bytes_to_read, ctx->base_storage_offset + entry->physical_offset + entry_pos, fr);
-                    return (out_pos + br);
+                    LOG_MSG_ERROR("Failed to read 0x%lX-byte long chunk from offset 0x%lX in savefile! (read 0x%lX, errno %d).", bytes_to_read, ctx->base_storage_offset + entry->physical_offset + entry_pos, read_bytes, errno);
+                    return (out_pos + read_bytes);
                 }
 
                 break;
             case STORAGE_DUPLEX:
-                br = save_duplex_storage_read(ctx->duplex, (u8*)buffer + out_pos, ctx->base_storage_offset + entry->physical_offset + entry_pos, bytes_to_read);
-                if (br != bytes_to_read)
+                read_bytes = save_duplex_storage_read(ctx->duplex, (u8*)buffer + out_pos, ctx->base_storage_offset + entry->physical_offset + entry_pos, bytes_to_read);
+                if (read_bytes != bytes_to_read)
                 {
                     LOG_MSG_ERROR("Failed to read remap data from duplex storage!");
-                    return (out_pos + br);
+                    return (out_pos + read_bytes);
                 }
+
                 break;
             default:
                 break;
@@ -304,7 +305,7 @@ static u32 save_remap_read(remap_storage_ctx_t *ctx, void *buffer, u64 offset, s
     return out_pos;
 }
 
-static u32 save_journal_storage_read(journal_storage_ctx_t *ctx, remap_storage_ctx_t *remap, void *buffer, u64 offset, size_t count)
+static u64 save_journal_storage_read(journal_storage_ctx_t *ctx, remap_storage_ctx_t *remap, void *buffer, u64 offset, size_t count)
 {
     if (!ctx || !ctx->block_size || !remap || !buffer || !count)
     {
@@ -313,22 +314,21 @@ static u32 save_journal_storage_read(journal_storage_ctx_t *ctx, remap_storage_c
     }
 
     u64 in_pos = offset;
-    u32 out_pos = 0;
-    u32 remaining = count;
-    u32 br;
+    u64 out_pos = 0;
+    u64 remaining = count;
 
     while(remaining)
     {
-        u32 block_num = (u32)(in_pos / ctx->block_size);
-        u32 block_pos = (u32)(in_pos % ctx->block_size);
+        u64 block_num = (in_pos / ctx->block_size);
+        u64 block_pos = (in_pos % ctx->block_size);
         u64 physical_offset = (ctx->map.entries[block_num].physical_index * ctx->block_size + block_pos);
-        u32 bytes_to_read = ((ctx->block_size - block_pos) < remaining ? (ctx->block_size - block_pos) : remaining);
+        u64 bytes_to_read = ((ctx->block_size - block_pos) < remaining ? (ctx->block_size - block_pos) : remaining);
 
-        br = save_remap_read(remap, (u8*)buffer + out_pos, ctx->journal_data_offset + physical_offset, bytes_to_read);
-        if (br != bytes_to_read)
+        u64 read_bytes = save_remap_read(remap, (u8*)buffer + out_pos, ctx->journal_data_offset + physical_offset, bytes_to_read);
+        if (read_bytes != bytes_to_read)
         {
             LOG_MSG_ERROR("Failed to read journal storage data!");
-            return (out_pos + br);
+            return (out_pos + read_bytes);
         }
 
         out_pos += bytes_to_read;
@@ -462,42 +462,43 @@ static size_t save_ivfc_level_fread(ivfc_level_save_ctx_t *ctx, void *buffer, u6
         return 0;
     }
 
-    UINT br = 0;
-    FRESULT fr;
+    size_t read_bytes = 0;
+
+    int res = 0;
 
     switch (ctx->type)
     {
         case STORAGE_BYTES:
-            fr = f_lseek(ctx->save_ctx->file, ctx->hash_offset + offset);
-            if (fr || f_tell(ctx->save_ctx->file) != (ctx->hash_offset + offset))
+            res = fseek(ctx->save_ctx->file, ctx->hash_offset + offset, SEEK_SET);
+            if (res || ftell(ctx->save_ctx->file) != (ctx->hash_offset + offset))
             {
-                LOG_MSG_ERROR("Failed to seek to offset 0x%lX in savefile! (%u).", ctx->hash_offset + offset, fr);
-                return (size_t)br;
+                LOG_MSG_ERROR("Failed to seek to offset 0x%lX in savefile! (%d).", ctx->hash_offset + offset, errno);
+                return 0;
             }
 
-            fr = f_read(ctx->save_ctx->file, buffer, count, &br);
-            if (fr || br != count)
+            read_bytes = fread(buffer, 1, count, ctx->save_ctx->file);
+            if (read_bytes != count)
             {
-                LOG_MSG_ERROR("Failed to read IVFC level data from offset 0x%lX in savefile! (%u).", ctx->hash_offset + offset, fr);
-                return (size_t)br;
+                LOG_MSG_ERROR("Failed to read 0x%lX-byte long IVFC level data chunk from offset 0x%lX in savefile! (read 0x%lX, errno %d).", count, ctx->hash_offset + offset, read_bytes, errno);
+                return read_bytes;
             }
 
             break;
         case STORAGE_REMAP:
-            br = save_remap_read(&ctx->save_ctx->meta_remap_storage, buffer, ctx->data_offset + offset, count);
-            if (br != count)
+            read_bytes = save_remap_read(&ctx->save_ctx->meta_remap_storage, buffer, ctx->data_offset + offset, count);
+            if (read_bytes != count)
             {
                 LOG_MSG_ERROR("Failed to read IVFC level data from remap storage!");
-                return (size_t)br;
+                return read_bytes;
             }
 
             break;
         case STORAGE_JOURNAL:
-            br = save_journal_storage_read(&ctx->save_ctx->journal_storage, &ctx->save_ctx->data_remap_storage, buffer, ctx->data_offset + offset, count);
-            if (br != count)
+            read_bytes = save_journal_storage_read(&ctx->save_ctx->journal_storage, &ctx->save_ctx->data_remap_storage, buffer, ctx->data_offset + offset, count);
+            if (read_bytes != count)
             {
                 LOG_MSG_ERROR("Failed to read IVFC level data from journal storage!");
-                return (size_t)br;
+                return read_bytes;
             }
 
             break;
@@ -1224,34 +1225,34 @@ bool save_process(save_ctx_t *ctx)
         return false;
     }
 
-    UINT br = 0;
-    FRESULT fr;
+    size_t read_bytes = 0;
+    int res = 0;
     bool success = false;
 
     /* Try to parse Header A. */
-    f_rewind(ctx->file);
+    rewind(ctx->file);
 
-    fr = f_read(ctx->file, &ctx->header, sizeof(ctx->header), &br);
-    if (fr || br != sizeof(ctx->header))
+    read_bytes = fread(&(ctx->header), 1, sizeof(ctx->header), ctx->file);
+    if (read_bytes != sizeof(ctx->header))
     {
-        LOG_MSG_ERROR("Failed to read savefile header A! (%u).", fr);
+        LOG_MSG_ERROR("Failed to read savefile header A! (read 0x%lX, errno %d).", read_bytes, errno);
         return success;
     }
 
     if (!save_process_header(ctx) || ctx->header_hash_validity == VALIDITY_INVALID)
     {
         /* Try to parse Header B. */
-        fr = f_lseek(ctx->file, 0x4000);
-        if (fr || f_tell(ctx->file) != 0x4000)
+        res = fseek(ctx->file, 0x4000, SEEK_SET);
+        if (res || ftell(ctx->file) != 0x4000)
         {
-            LOG_MSG_ERROR("Failed to seek to offset 0x4000 in savefile! (%u).", fr);
+            LOG_MSG_ERROR("Failed to seek to offset 0x4000 in savefile! (%d).", errno);
             return success;
         }
 
-        fr = f_read(ctx->file, &ctx->header, sizeof(ctx->header), &br);
-        if (fr || br != sizeof(ctx->header))
+        read_bytes = fread(&(ctx->header), 1, sizeof(ctx->header), ctx->file);
+        if (read_bytes != sizeof(ctx->header))
         {
-            LOG_MSG_ERROR("Failed to read savefile header B! (%u).", fr);
+            LOG_MSG_ERROR("Failed to read savefile header B! (read 0x%lX, errno %d).", read_bytes, errno);
             return success;
         }
 
@@ -1280,19 +1281,19 @@ bool save_process(save_ctx_t *ctx)
         return success;
     }
 
-    fr = f_lseek(ctx->file, ctx->header.layout.file_map_entry_offset);
-    if (fr || f_tell(ctx->file) != ctx->header.layout.file_map_entry_offset)
+    res = fseek(ctx->file, ctx->header.layout.file_map_entry_offset, SEEK_SET);
+    if (res || ftell(ctx->file) != ctx->header.layout.file_map_entry_offset)
     {
-        LOG_MSG_ERROR("Failed to seek to file map entry offset 0x%lX in savefile! (%u).", ctx->header.layout.file_map_entry_offset, fr);
+        LOG_MSG_ERROR("Failed to seek to file map entry offset 0x%lX in savefile! (%d).", ctx->header.layout.file_map_entry_offset, errno);
         return success;
     }
 
     for(u32 i = 0; i < ctx->data_remap_storage.header->map_entry_count; i++)
     {
-        fr = f_read(ctx->file, &ctx->data_remap_storage.map_entries[i], 0x20, &br);
-        if (fr || br != 0x20)
+        read_bytes = fread(&(ctx->data_remap_storage.map_entries[i]), 1, 0x20, ctx->file);
+        if (read_bytes != 0x20)
         {
-            LOG_MSG_ERROR("Failed to read data remap storage entry #%u! (%u).", i, fr);
+            LOG_MSG_ERROR("Failed to read data remap storage entry #%u! (read 0x%lX, errno %d).", i, read_bytes, errno);
             goto end;
         }
 
@@ -1417,19 +1418,19 @@ bool save_process(save_ctx_t *ctx)
         goto end;
     }
 
-    fr = f_lseek(ctx->file, ctx->header.layout.meta_map_entry_offset);
-    if (fr || f_tell(ctx->file) != ctx->header.layout.meta_map_entry_offset)
+    res = fseek(ctx->file, ctx->header.layout.meta_map_entry_offset, SEEK_SET);
+    if (res || ftell(ctx->file) != ctx->header.layout.meta_map_entry_offset)
     {
-        LOG_MSG_ERROR("Failed to seek to meta map entry offset 0x%lX in savefile! (%u).", ctx->header.layout.meta_map_entry_offset, fr);
+        LOG_MSG_ERROR("Failed to seek to meta map entry offset 0x%lX in savefile! (%d).", ctx->header.layout.meta_map_entry_offset, errno);
         goto end;
     }
 
     for(u32 i = 0; i < ctx->meta_remap_storage.header->map_entry_count; i++)
     {
-        fr = f_read(ctx->file, &ctx->meta_remap_storage.map_entries[i], 0x20, &br);
-        if (fr || br != 0x20)
+        read_bytes = fread(&(ctx->meta_remap_storage.map_entries[i]), 1, 0x20, ctx->file);
+        if (read_bytes != 0x20)
         {
-            LOG_MSG_ERROR("Failed to read meta remap storage entry #%u! (%u).", i, fr);
+            LOG_MSG_ERROR("Failed to read meta remap storage entry #%u! (read 0x%lX, errno %d).", i, read_bytes, errno);
             goto end;
         }
 
@@ -1726,53 +1727,46 @@ save_ctx_t *save_open_savefile(const char *path, u32 action)
         return NULL;
     }
 
-    FRESULT fr = FR_OK;
-    FIL *save_fd = NULL;
+    FILE *save_fp = NULL;
     save_ctx_t *save_ctx = NULL;
-    bool open_savefile = false, success = false;
+    bool success = false;
 
-    save_fd = calloc(1, sizeof(FIL));
-    if (!save_fd)
+    save_fp = fopen(path, "rb");
+    if (!save_fp)
     {
-        LOG_MSG_ERROR("Unable to allocate memory for FatFs file descriptor!");
-        return NULL;
-    }
-
-    fr = f_open(save_fd, path, FA_READ | FA_OPEN_EXISTING);
-    if (fr != FR_OK)
-    {
-        LOG_MSG_ERROR("Failed to open \"%s\" savefile from BIS System partition! (%u).", path, fr);
+        LOG_MSG_ERROR("Failed to open savefile \"%s\"! (%d).", path, errno);
         goto end;
     }
 
-    open_savefile = true;
-
     /* Code to dump the requested file in its entirety. Useful to retrieve protected system savefiles without exiting HOS. */
     /*char sd_path[FS_MAX_PATH] = {0};
-    sprintf(sd_path, DEVOPTAB_SDMC_DEVICE "/%s", strrchr(path, '/') + 1);
+    snprintf(sd_path, MAX_ELEMENTS(sd_path), DEVOPTAB_SDMC_DEVICE "/%s", strrchr(path, '/') + 1);
 
-    UINT blksize = 0x100000;
+    utilsCreateDirectoryTree(sd_path, false);
+
+    u64 blksize = 0x100000;
     u8 *buf = malloc(blksize);
-    FILE *fd = fopen(sd_path, "wb");
+    FILE *sd_fp = fopen(sd_path, "wb");
 
-    if (buf && fd)
+    if (buf && sd_fp)
     {
-        u64 size = f_size(save_fd);
-        UINT br = 0;
+        fseek(save_fp, 0, SEEK_END);
+        u64 size = ftell(save_fp);
+        rewind(save_fp);
 
-        for(u64 i = 0; i < size; i += blksize)
+        for(u64 offset = 0; offset < size; offset += blksize)
         {
-            if ((size - i) < blksize) blksize = (size - i);
-            if (f_read(save_fd, buf, blksize, &br) != FR_OK || br != blksize) break;
-            fwrite(buf, 1, blksize, fd);
+            if ((size - offset) < blksize) blksize = (size - offset);
+            if (fread(buf, 1, blksize, save_fp) != blksize) break;
+            fwrite(buf, 1, blksize, sd_fp);
         }
 
-        f_rewind(save_fd);
+        rewind(save_fp);
     }
 
-    if (fd)
+    if (sd_fp)
     {
-        fclose(fd);
+        fclose(sd_fp);
         utilsCommitSdCardFileSystemChanges();
     }
 
@@ -1785,7 +1779,7 @@ save_ctx_t *save_open_savefile(const char *path, u32 action)
         goto end;
     }
 
-    save_ctx->file = save_fd;
+    save_ctx->file = save_fp;
     save_ctx->tool_ctx.action = action;
 
     success = save_process(save_ctx);
@@ -1800,29 +1794,22 @@ end:
             save_ctx = NULL;
         }
 
-        if (save_fd)
-        {
-            if (open_savefile) f_close(save_fd);
-            free(save_fd);
-        }
+        if (save_fp) fclose(save_fp);
     }
 
     return save_ctx;
 }
 
-void save_close_savefile(save_ctx_t *ctx)
+void save_close_savefile(save_ctx_t **ctx)
 {
-    if (!ctx) return;
+    if (!ctx || !*ctx) return;
 
-    if (ctx->file)
-    {
-        f_close(ctx->file);
-        free(ctx->file);
-    }
+    if ((*ctx)->file) fclose((*ctx)->file);
 
-    save_free_contexts(ctx);
+    save_free_contexts(*ctx);
 
-    free(ctx);
+    free(*ctx);
+    *ctx = NULL;
 }
 
 bool save_get_fat_storage_from_file_entry_by_path(save_ctx_t *ctx, const char *path, allocation_table_storage_ctx_t *out_fat_storage, u64 *out_file_entry_size)

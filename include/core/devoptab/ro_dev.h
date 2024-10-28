@@ -32,6 +32,7 @@ extern "C" {
 /* We don't provide support for relative directories, so chdir is discarded as well. */
 
 ssize_t rodev_write(struct _reent *r, void *fd, const char *ptr, size_t len);
+int     rodev_fstat(struct _reent *r, void *fd, struct stat *st);
 int     rodev_link(struct _reent *r, const char *existing, const char *newLink);
 int     rodev_unlink(struct _reent *r, const char *name);
 int     rodev_chdir(struct _reent *r, const char *name);

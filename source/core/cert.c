@@ -23,8 +23,9 @@
 #include <core/cert.h>
 #include <core/save.h>
 #include <core/gamecard.h>
+#include <core/bis_storage.h>
 
-#define CERT_SAVEFILE_PATH              BIS_SYSTEM_PARTITION_MOUNT_NAME "/save/80000000000000e0"
+#define CERT_BIS_SYSTEM_SAVEFILE_PATH   "/save/80000000000000e0"
 #define CERT_SAVEFILE_STORAGE_BASE_PATH "/certificate/"
 
 #define CERT_TYPE(sig)                  (pub_key_type == CertPubKeyType_Rsa4096 ? CertType_Sig##sig##_PubKeyRsa4096 : \
@@ -32,8 +33,8 @@
 
 /* Global variables. */
 
-static save_ctx_t *g_esCertSaveCtx = NULL;
 static Mutex g_esCertSaveMutex = 0;
+static save_ctx_t *g_esCertSaveCtx = NULL;
 
 /* Function prototypes. */
 
@@ -60,9 +61,15 @@ bool certRetrieveCertificateByName(Certificate *dst, const char *name)
 
     SCOPED_LOCK(&g_esCertSaveMutex)
     {
-        if (!certOpenEsCertSaveFile()) break;
-        ret = _certRetrieveCertificateByName(dst, name);
-        certCloseEsCertSaveFile();
+        bisStorageControlMutex(true);
+
+        if (certOpenEsCertSaveFile())
+        {
+            ret = _certRetrieveCertificateByName(dst, name);
+            certCloseEsCertSaveFile();
+        }
+
+        bisStorageControlMutex(false);
     }
 
     return ret;
@@ -80,9 +87,15 @@ bool certRetrieveCertificateChainBySignatureIssuer(CertificateChain *dst, const 
 
     SCOPED_LOCK(&g_esCertSaveMutex)
     {
-        if (!certOpenEsCertSaveFile()) break;
-        ret = _certRetrieveCertificateChainBySignatureIssuer(dst, issuer);
-        certCloseEsCertSaveFile();
+        bisStorageControlMutex(true);
+
+        if (certOpenEsCertSaveFile())
+        {
+            ret = _certRetrieveCertificateChainBySignatureIssuer(dst, issuer);
+            certCloseEsCertSaveFile();
+        }
+
+        bisStorageControlMutex(false);
     }
 
     return ret;
@@ -190,21 +203,44 @@ static bool certOpenEsCertSaveFile(void)
 {
     if (g_esCertSaveCtx) return true;
 
-    g_esCertSaveCtx = save_open_savefile(CERT_SAVEFILE_PATH, 0);
+    const char *mount_name = NULL;
+    char savefile_path[64] = {0};
+    bool success = false;
+
+    /* Mount eMMC BIS System partition. */
+    if (!bisStorageMountPartition(FsBisPartitionId_System, &mount_name))
+    {
+        LOG_MSG_ERROR("Failed to mount eMMC BIS System partition!");
+        goto end;
+    }
+
+    /* Generate savefile path. */
+    snprintf(savefile_path, sizeof(savefile_path), "%s:%s", mount_name, CERT_BIS_SYSTEM_SAVEFILE_PATH);
+
+    /* Initialize savefile context. */
+    g_esCertSaveCtx = save_open_savefile(savefile_path, 0);
     if (!g_esCertSaveCtx)
     {
         LOG_MSG_ERROR("Failed to open ES certificate system savefile!");
-        return false;
+        goto end;
     }
 
-    return true;
+    /* Update flag. */
+    success = true;
+
+end:
+    if (!success && mount_name) bisStorageUnmountPartition(FsBisPartitionId_System);
+
+    return success;
 }
 
 static void certCloseEsCertSaveFile(void)
 {
     if (!g_esCertSaveCtx) return;
-    save_close_savefile(g_esCertSaveCtx);
-    g_esCertSaveCtx = NULL;
+
+    save_close_savefile(&g_esCertSaveCtx);
+
+    bisStorageUnmountPartition(FsBisPartitionId_System);
 }
 
 static bool _certRetrieveCertificateByName(Certificate *dst, const char *name)

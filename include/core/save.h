@@ -25,8 +25,6 @@
 #ifndef __SAVE_H__
 #define __SAVE_H__
 
-#include "fatfs/ff.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -45,7 +43,7 @@ extern "C" {
 #define MAGIC_RMAP                      0x50414D52
 #define MAGIC_IVFC                      0x43465649
 
-#define ACTION_VERIFY                   (1<<2)
+#define ACTION_VERIFY                   (1 << 2)
 
 typedef enum {
     VALIDITY_UNCHECKED = 0,
@@ -232,7 +230,7 @@ typedef struct {
     enum base_storage_type type;
     u64 base_storage_offset;
     duplex_storage_ctx_t *duplex;
-    FIL *file;
+    FILE *file;
 } remap_storage_ctx_t;
 
 typedef struct {
@@ -333,7 +331,7 @@ typedef struct {
     u32 block_size;
     u64 journal_data_offset;
     u64 _length;
-    FIL *file;
+    FILE *file;
 } journal_storage_ctx_t;
 
 typedef struct {
@@ -470,9 +468,9 @@ typedef struct {
 
 struct save_ctx_t {
     save_header_t header;
-    FIL *file;
+    FILE *file;
     struct {
-        FIL *file;
+        FILE *file;
         u32 action;
     } tool_ctx;
     validity_t header_cmac_validity;
@@ -549,7 +547,7 @@ bool save_hierarchical_file_table_find_path_recursive(hierarchical_save_file_tab
 bool save_hierarchical_file_table_get_file_entry_by_path(hierarchical_save_file_table_ctx_t *ctx, const char *path, save_fs_list_entry_t *entry);
 
 save_ctx_t *save_open_savefile(const char *path, u32 action);
-void save_close_savefile(save_ctx_t *ctx);
+void save_close_savefile(save_ctx_t **ctx);
 bool save_get_fat_storage_from_file_entry_by_path(save_ctx_t *ctx, const char *path, allocation_table_storage_ctx_t *out_fat_storage, u64 *out_file_entry_size);
 
 #ifdef __cplusplus

@@ -32,7 +32,7 @@
 #include <core/nxdt_bfsar.h>
 #include <core/system_update.h>
 #include <core/devoptab/nxdt_devoptab.h>
-#include <core/fatfs/ff.h>
+#include <core/bis_storage.h>
 
 /* Type definitions. */
 
@@ -75,9 +75,6 @@ static bool g_isTerraUnit = false, g_isDevUnit = false;
 
 static AppletType g_programAppletType = AppletType_None;
 
-static FsStorage g_emmcBisSystemPartitionStorage = {0};
-static FATFS *g_emmcBisSystemPartitionFatFsObj = NULL;
-
 static AppletHookCookie g_systemOverclockCookie = {0};
 
 static bool g_longRunningProcess = false;
@@ -110,9 +107,6 @@ static bool _utilsGetProductModel(void);
 static bool utilsGetDevelopmentUnitFlag(void);
 
 static bool utilsGetTerraUnitFlag(void);
-
-static bool utilsMountEmmcBisSystemPartitionStorage(void);
-static void utilsUnmountEmmcBisSystemPartitionStorage(void);
 
 static void utilsOverclockSystem(bool overclock);
 static void utilsOverclockSystemAppletHook(AppletHookType hook, void *param);
@@ -275,9 +269,6 @@ bool utilsInitializeResources(void)
         /* Initialize system update interface. */
         if (!systemUpdateInitialize()) break;
 
-        /* Mount eMMC BIS System partition. */
-        if (!utilsMountEmmcBisSystemPartitionStorage()) break;
-
         /* Mount application RomFS. */
         rc = romfsInit();
         if (R_FAILED(rc))
@@ -347,6 +338,9 @@ void utilsCloseResources(void)
         /* Unmount all custom devoptab devices. */
         devoptabUnmountAllDevices();
 
+        /* Unmount all eMMC BIS partitions. */
+        bisStorageUnmountAllPartitions();
+
         /* Unset long running process state. */
         utilsSetLongRunningProcessState(false);
 
@@ -358,9 +352,6 @@ void utilsCloseResources(void)
 
         /* Unmount application RomFS. */
         romfsExit();
-
-        /* Unmount eMMC BIS System partition. */
-        utilsUnmountEmmcBisSystemPartitionStorage();
 
         /* Deinitialize system update interface. */
         systemUpdateExit();
@@ -482,11 +473,6 @@ bool utilsIsTerraUnit(void)
 bool utilsIsAppletMode(void)
 {
     return (g_programAppletType > AppletType_Application && g_programAppletType < AppletType_SystemApplication);
-}
-
-FsStorage *utilsGetEmmcBisSystemPartitionStorage(void)
-{
-    return &g_emmcBisSystemPartitionStorage;
 }
 
 void utilsSetLongRunningProcessState(bool state)
@@ -1474,51 +1460,6 @@ static bool utilsGetTerraUnitFlag(void)
     }
 
     return R_SUCCEEDED(rc);
-}
-
-static bool utilsMountEmmcBisSystemPartitionStorage(void)
-{
-    Result rc = 0;
-    FRESULT fr = FR_OK;
-
-    rc = fsOpenBisStorage(&g_emmcBisSystemPartitionStorage, FsBisPartitionId_System);
-    if (R_FAILED(rc))
-    {
-        LOG_MSG_ERROR("Failed to open eMMC BIS System partition storage! (0x%X).", rc);
-        return false;
-    }
-
-    g_emmcBisSystemPartitionFatFsObj = calloc(1, sizeof(FATFS));
-    if (!g_emmcBisSystemPartitionFatFsObj)
-    {
-        LOG_MSG_ERROR("Unable to allocate memory for FatFs element!");
-        return false;
-    }
-
-    fr = f_mount(g_emmcBisSystemPartitionFatFsObj, BIS_SYSTEM_PARTITION_MOUNT_NAME, 1);
-    if (fr != FR_OK)
-    {
-        LOG_MSG_ERROR("Failed to mount eMMC BIS System partition! (%u).", fr);
-        return false;
-    }
-
-    return true;
-}
-
-static void utilsUnmountEmmcBisSystemPartitionStorage(void)
-{
-    if (g_emmcBisSystemPartitionFatFsObj)
-    {
-        f_unmount(BIS_SYSTEM_PARTITION_MOUNT_NAME);
-        free(g_emmcBisSystemPartitionFatFsObj);
-        g_emmcBisSystemPartitionFatFsObj = NULL;
-    }
-
-    if (serviceIsActive(&(g_emmcBisSystemPartitionStorage.s)))
-    {
-        fsStorageClose(&g_emmcBisSystemPartitionStorage);
-        memset(&g_emmcBisSystemPartitionStorage, 0, sizeof(FsStorage));
-    }
 }
 
 static void utilsOverclockSystem(bool overclock)

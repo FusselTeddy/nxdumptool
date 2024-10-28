@@ -30,12 +30,14 @@ typedef enum {
     DevoptabDeviceType_PartitionFileSystem = 0,
     DevoptabDeviceType_HashFileSystem      = 1,
     DevoptabDeviceType_RomFileSystem       = 2,
-    DevoptabDeviceType_Count               = 3  ///< Total values supported by this enum.
+    DevoptabDeviceType_FatFs               = 3,
+    DevoptabDeviceType_Count               = 4  ///< Total values supported by this enum.
 } DevoptabDeviceType;
 
 /* Global variables. */
 
 static Mutex g_devoptabMutex = 0;
+
 static DevoptabDeviceContext g_devoptabDevices[DEVOPTAB_DEVICE_COUNT] = {0};
 static const u32 g_devoptabDeviceCount = MAX_ELEMENTS(g_devoptabDevices);
 
@@ -44,6 +46,7 @@ static const u32 g_devoptabDeviceCount = MAX_ELEMENTS(g_devoptabDevices);
 const devoptab_t *pfsdev_get_devoptab();
 const devoptab_t *hfsdev_get_devoptab();
 const devoptab_t *romfsdev_get_devoptab();
+const devoptab_t *fatdev_get_devoptab();
 
 static bool devoptabMountDevice(void *fs_ctx, const char *name, u8 type);
 static DevoptabDeviceContext *devoptabFindDevice(const char *name);
@@ -94,6 +97,21 @@ bool devoptabMountRomFileSystemDevice(RomFileSystemContext *romfs_ctx, const cha
     return ret;
 }
 
+bool devoptabMountFatFsDevice(FATFS *fatfs, const char *name)
+{
+    if (!fatfs || !fatfs->fs_type || !name || !*name)
+    {
+        LOG_MSG_ERROR("Invalid parameters!");
+        return false;
+    }
+
+    bool ret = false;
+
+    SCOPED_LOCK(&g_devoptabMutex) ret = devoptabMountDevice(fatfs, name, DevoptabDeviceType_FatFs);
+
+    return ret;
+}
+
 void devoptabUnmountDevice(const char *name)
 {
     if (!name || !*name)
@@ -111,7 +129,7 @@ void devoptabUnmountDevice(const char *name)
             /* Reset device. */
             devoptabResetDevice(dev_ctx);
         } else {
-            LOG_MSG_ERROR("Error: unable to find devoptab device \"%s\".", name);
+            LOG_MSG_ERROR("Unable to find devoptab device \"%s\".", name);
         }
     }
 }
@@ -154,7 +172,7 @@ static bool devoptabMountDevice(void *fs_ctx, const char *name, u8 type)
     /* Retrieve a pointer to the first unused device entry. */
     if (!(dev_ctx = devoptabFindDevice(NULL)))
     {
-        LOG_MSG_ERROR("Error: unable to find an empty device slot for \"%s\" (type 0x%02X).", name, type);
+        LOG_MSG_ERROR("Unable to find an empty device slot for \"%s\" (type 0x%02X).", name, type);
         return false;
     }
 
@@ -170,13 +188,16 @@ static bool devoptabMountDevice(void *fs_ctx, const char *name, u8 type)
         case DevoptabDeviceType_RomFileSystem:
             device = romfsdev_get_devoptab();
             break;
+        case DevoptabDeviceType_FatFs:
+            device = fatdev_get_devoptab();
+            break;
         default:
             break;
     }
 
     if (!device)
     {
-        LOG_MSG_ERROR("Error: unable to retrieve a devoptab interface for \"%s\" (type 0x%02X).", name, type);
+        LOG_MSG_ERROR("Unable to retrieve a devoptab interface for \"%s\" (type %u).", name, type);
         return false;
     }
 
@@ -195,7 +216,7 @@ static bool devoptabMountDevice(void *fs_ctx, const char *name, u8 type)
     int res = AddDevice(&(dev_ctx->device));
     if (res < 0)
     {
-        LOG_MSG_ERROR("Error: AddDevice failed! (%d).", res);
+        LOG_MSG_ERROR("AddDevice failed! (%d).", res);
         goto end;
     }
 

@@ -27,9 +27,8 @@
 
 /* Helper macros. */
 
-#define ROMFS_DEV_INIT_VARS         DEVOPTAB_INIT_VARS(RomFileSystemContext)
-#define ROMFS_DEV_INIT_FILE_VARS    DEVOPTAB_INIT_FILE_VARS(RomFileSystemContext, RomFileSystemFileState)
-#define ROMFS_DEV_INIT_DIR_VARS     DEVOPTAB_INIT_DIR_VARS(RomFileSystemContext, RomFileSystemDirectoryState)
+#define ROMFS_DEV_INIT_FILE_VARS    DEVOPTAB_INIT_FILE_VARS(RomFileSystemFileState)
+#define ROMFS_DEV_INIT_DIR_VARS     DEVOPTAB_INIT_DIR_VARS(RomFileSystemDirectoryState)
 #define ROMFS_DEV_INIT_FS_ACCESS    DEVOPTAB_DECL_FS_CTX(RomFileSystemContext)
 
 #define ROMFS_FILE_INODE(file)      ((u64)(file - fs_ctx->file_table) + (fs_ctx->dir_table_size / 4))
@@ -242,7 +241,7 @@ static int romfsdev_stat(struct _reent *r, const char *file, struct stat *st)
 {
     RomFileSystemFileEntry *file_entry = NULL;
 
-    ROMFS_DEV_INIT_VARS;
+    DEVOPTAB_INIT_VARS;
     ROMFS_DEV_INIT_FS_ACCESS;
 
     /* Sanity check. */
@@ -397,13 +396,13 @@ static int romfsdev_statvfs(struct _reent *r, const char *path, struct statvfs *
 
     u64 ext_fs_size = 0;
 
-    ROMFS_DEV_INIT_VARS;
+    DEVOPTAB_INIT_VARS;
     ROMFS_DEV_INIT_FS_ACCESS;
 
     /* Sanity check. */
     if (!buf) DEVOPTAB_SET_ERROR_AND_EXIT(EINVAL);
 
-    //LOG_MSG_DEBUG("Getting filesystem stats for \"%s:\"", dev_ctx->name);
+    //LOG_MSG_DEBUG("Getting filesystem stats for \"%s:\".", dev_ctx->name);
 
     /* Get RomFS total data size. */
     if (!romfsGetTotalDataSize(fs_ctx, false, &ext_fs_size)) DEVOPTAB_SET_ERROR_AND_EXIT(EIO);
@@ -435,8 +434,6 @@ static const char *romfsdev_get_truncated_path(struct _reent *r, const char *pat
     u32 code = 0;
     size_t len = 0;
 
-    DEVOPTAB_DECL_ERROR_STATE;
-
     if (!r || !path || !*path) DEVOPTAB_SET_ERROR_AND_EXIT(EINVAL);
 
     //LOG_MSG_DEBUG("Input path: \"%s\".", path);
@@ -464,7 +461,7 @@ static const char *romfsdev_get_truncated_path(struct _reent *r, const char *pat
         p += units;
     } while(code >= ' ');
 
-    /* Verify fixed path length. */
+    /* Verify truncated path length. */
     len = strlen(path);
     if (len >= FS_MAX_PATH) DEVOPTAB_SET_ERROR_AND_EXIT(ENAMETOOLONG);
 

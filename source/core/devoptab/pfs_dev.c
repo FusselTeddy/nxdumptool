@@ -27,9 +27,8 @@
 
 /* Helper macros. */
 
-#define PFS_DEV_INIT_VARS       DEVOPTAB_INIT_VARS(PartitionFileSystemContext)
-#define PFS_DEV_INIT_FILE_VARS  DEVOPTAB_INIT_FILE_VARS(PartitionFileSystemContext, PartitionFileSystemFileState)
-#define PFS_DEV_INIT_DIR_VARS   DEVOPTAB_INIT_DIR_VARS(PartitionFileSystemContext, PartitionFileSystemDirectoryState)
+#define PFS_DEV_INIT_FILE_VARS  DEVOPTAB_INIT_FILE_VARS(PartitionFileSystemFileState)
+#define PFS_DEV_INIT_DIR_VARS   DEVOPTAB_INIT_DIR_VARS(PartitionFileSystemDirectoryState)
 #define PFS_DEV_INIT_FS_ACCESS  DEVOPTAB_DECL_FS_CTX(PartitionFileSystemContext)
 
 /* Type definitions. */
@@ -236,7 +235,7 @@ static int pfsdev_stat(struct _reent *r, const char *file, struct stat *st)
     u32 index = 0;
     PartitionFileSystemEntry *pfs_entry = NULL;
 
-    PFS_DEV_INIT_VARS;
+    DEVOPTAB_INIT_VARS;
     PFS_DEV_INIT_FS_ACCESS;
 
     /* Sanity check. */
@@ -368,13 +367,13 @@ static int pfsdev_statvfs(struct _reent *r, const char *path, struct statvfs *bu
 
     u64 ext_fs_size = 0;
 
-    PFS_DEV_INIT_VARS;
+    DEVOPTAB_INIT_VARS;
     PFS_DEV_INIT_FS_ACCESS;
 
     /* Sanity check. */
     if (!buf) DEVOPTAB_SET_ERROR_AND_EXIT(EINVAL);
 
-    //LOG_MSG_DEBUG("Getting filesystem stats for \"%s:\"", dev_ctx->name);
+    //LOG_MSG_DEBUG("Getting filesystem stats for \"%s:\".", dev_ctx->name);
 
     /* Get Partition FS total data size. */
     if (!pfsGetTotalDataSize(fs_ctx, &ext_fs_size)) DEVOPTAB_SET_ERROR_AND_EXIT(EIO);
@@ -407,8 +406,6 @@ static const char *pfsdev_get_truncated_path(struct _reent *r, const char *path)
     size_t len = 0;
     bool path_sep_skipped = false;
 
-    DEVOPTAB_DECL_ERROR_STATE;
-
     if (!r || !path || !*path) DEVOPTAB_SET_ERROR_AND_EXIT(EINVAL);
 
     //LOG_MSG_DEBUG("Input path: \"%s\".", path);
@@ -440,7 +437,7 @@ static const char *pfsdev_get_truncated_path(struct _reent *r, const char *path)
         p += units;
     } while(code >= ' ');
 
-    /* Verify fixed path length. */
+    /* Verify truncated path length. */
     len = strlen(path);
     if (!len && !path_sep_skipped) DEVOPTAB_SET_ERROR_AND_EXIT(EINVAL);
     if (len >= FS_MAX_PATH) DEVOPTAB_SET_ERROR_AND_EXIT(ENAMETOOLONG);

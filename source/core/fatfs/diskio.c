@@ -8,6 +8,7 @@
 /*-----------------------------------------------------------------------*/
 
 #include <core/nxdt_utils.h>
+#include <core/bis_storage.h>
 
 #include <core/fatfs/ff.h>		/* Obtains integer types */
 #include <core/fatfs/diskio.h>	/* Declarations of disk functions */
@@ -20,7 +21,7 @@ DSTATUS disk_status (
     BYTE pdrv		/* Physical drive number to identify the drive */
 )
 {
-    (void)pdrv;
+    NX_IGNORE_ARG(pdrv);
     return 0;
 }
 
@@ -32,7 +33,7 @@ DSTATUS disk_initialize (
     BYTE pdrv				/* Physical drive number to identify the drive */
 )
 {
-    (void)pdrv;
+    NX_IGNORE_ARG(pdrv);
     return 0;
 }
 
@@ -47,15 +48,34 @@ DRESULT disk_read (
     UINT count		/* Number of sectors to read */
 )
 {
-    (void)pdrv;
-
+    FsStorage *bis_storage = NULL;
+    u64 offset = 0, size = 0;
     Result rc = 0;
-    u64 start_offset = ((u64)FF_MAX_SS * (u64)sector);
-    u64 read_size = ((u64)FF_MAX_SS * (u64)count);
+    DRESULT ret = RES_PARERR;
 
-    rc = fsStorageRead(utilsGetEmmcBisSystemPartitionStorage(), start_offset, buff, read_size);
+    bisStorageControlMutex(true);
 
-    return (R_SUCCEEDED(rc) ? RES_OK : RES_ERROR);
+    /* Get pointer to FsStorage object. */
+    bis_storage = bisStorageGetFsStorageByFatFsDriveNumber(pdrv);
+    if (!bis_storage)
+    {
+        LOG_MSG_ERROR("Failed to retrieve FsStorage object for drive number %u!", pdrv);
+        goto end;
+    }
+
+    /* Calculate data offset and size. */
+    offset = ((u64)FF_MAX_SS * (u64)sector);
+    size = ((u64)FF_MAX_SS * (u64)count);
+
+    /* Read BIS storage. */
+    rc = fsStorageRead(bis_storage, (s64)offset, buff, size);
+    ret = (R_SUCCEEDED(rc) ? RES_OK : RES_ERROR);
+    if (ret == RES_ERROR) LOG_MSG_ERROR("Failed to read 0x%lX-byte long block at offset 0x%lX from drive number %u!", offset, size, pdrv);
+
+end:
+    bisStorageControlMutex(false);
+
+    return ret;
 }
 
 /*-----------------------------------------------------------------------*/
@@ -71,10 +91,10 @@ DRESULT disk_write (
     UINT count			/* Number of sectors to write */
 )
 {
-    (void)pdrv;
-    (void)buff;
-    (void)sector;
-    (void)count;
+    NX_IGNORE_ARG(pdrv);
+    NX_IGNORE_ARG(buff);
+    NX_IGNORE_ARG(sector);
+    NX_IGNORE_ARG(count);
     return RES_OK;
 }
 
@@ -90,8 +110,8 @@ DRESULT disk_ioctl (
     void *buff		/* Buffer to send/receive control data */
 )
 {
-    (void)pdrv;
-    (void)cmd;
-    (void)buff;
+    NX_IGNORE_ARG(pdrv);
+    NX_IGNORE_ARG(cmd);
+    NX_IGNORE_ARG(buff);
     return RES_OK;
 }

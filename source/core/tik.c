@@ -30,15 +30,16 @@
 #include <core/mem.h>
 #include <core/aes.h>
 #include <core/rsa.h>
+#include <core/bis_storage.h>
 
-#define TIK_COMMON_SAVEFILE_PATH        BIS_SYSTEM_PARTITION_MOUNT_NAME "/save/80000000000000e1"
-#define TIK_PERSONALIZED_SAVEFILE_PATH  BIS_SYSTEM_PARTITION_MOUNT_NAME "/save/80000000000000e2"
+#define TIK_COMMON_BIS_SYSTEM_SAVEFILE_PATH         "/save/80000000000000e1"
+#define TIK_PERSONALIZED_BIS_SYSTEM_SAVEFILE_PATH   "/save/80000000000000e2"
 
-#define TIK_LIST_STORAGE_PATH           "/ticket_list.bin"
-#define TIK_DB_STORAGE_PATH             "/ticket.bin"
+#define TIK_LIST_SAVEFILE_STORAGE_PATH              "/ticket_list.bin"
+#define TIK_DB_SAVEFILE_STORAGE_PATH                "/ticket.bin"
 
-#define TIK_COMMON_CERT_NAME            "XS00000020"
-#define TIK_DEV_CERT_ISSUER             "CA00000004"
+#define TIK_COMMON_CERT_NAME                        "XS00000020"
+#define TIK_DEV_CERT_ISSUER                         "CA00000004"
 
 /* Type definitions. */
 
@@ -320,6 +321,8 @@ static bool tikRetrieveTicketFromEsSaveDataByRightsId(Ticket *dst, const FsRight
 
     u8 titlekey_type = 0;
 
+    const char *mount_name = NULL;
+    char savefile_path[64] = {0};
     save_ctx_t *save_ctx = NULL;
 
     u64 buf_size = (SIGNED_TIK_MAX_SIZE * 0x100);
@@ -327,6 +330,8 @@ static bool tikRetrieveTicketFromEsSaveDataByRightsId(Ticket *dst, const FsRight
     u64 ticket_offset = 0;
 
     bool success = false;
+
+    bisStorageControlMutex(true);
 
     /* Allocate memory to retrieve the ticket. */
     if (!(buf = malloc(buf_size)))
@@ -342,8 +347,18 @@ static bool tikRetrieveTicketFromEsSaveDataByRightsId(Ticket *dst, const FsRight
         goto end;
     }
 
+    /* Mount eMMC BIS System partition. */
+    if (!bisStorageMountPartition(FsBisPartitionId_System, &mount_name))
+    {
+        LOG_MSG_ERROR("Failed to mount eMMC BIS System partition!");
+        goto end;
+    }
+
+    /* Generate savefile path. */
+    snprintf(savefile_path, sizeof(savefile_path), "%s:%s", mount_name, titlekey_type == TikTitleKeyType_Common ? TIK_COMMON_BIS_SYSTEM_SAVEFILE_PATH : TIK_PERSONALIZED_BIS_SYSTEM_SAVEFILE_PATH);
+
     /* Open ES common/personalized system savefile. */
-    if (!(save_ctx = save_open_savefile(titlekey_type == TikTitleKeyType_Common ? TIK_COMMON_SAVEFILE_PATH : TIK_PERSONALIZED_SAVEFILE_PATH, 0)))
+    if (!(save_ctx = save_open_savefile(savefile_path, 0)))
     {
         LOG_MSG_ERROR("Failed to open ES %s ticket system savefile!", g_tikTitleKeyTypeStrings[titlekey_type]);
         goto end;
@@ -352,7 +367,7 @@ static bool tikRetrieveTicketFromEsSaveDataByRightsId(Ticket *dst, const FsRight
     /* Get ticket entry offset from ticket_list.bin. */
     if (!tikGetTicketEntryOffsetFromTicketList(save_ctx, buf, buf_size, id, titlekey_type, &ticket_offset))
     {
-        LOG_MSG_ERROR("Unable to find an entry with a matching Rights ID in \"%s\" from ES %s ticket system save!", TIK_LIST_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
+        LOG_MSG_ERROR("Unable to find an entry with a matching Rights ID in \"%s\" from ES %s ticket system save!", TIK_LIST_SAVEFILE_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
         goto end;
     }
 
@@ -374,9 +389,13 @@ static bool tikRetrieveTicketFromEsSaveDataByRightsId(Ticket *dst, const FsRight
     memcpy(dst->data, buf, dst->size);
 
 end:
-    if (save_ctx) save_close_savefile(save_ctx);
+    if (save_ctx) save_close_savefile(&save_ctx);
+
+    if (mount_name) bisStorageUnmountPartition(FsBisPartitionId_System);
 
     if (buf) free(buf);
+
+    bisStorageControlMutex(false);
 
     return success;
 }
@@ -541,8 +560,8 @@ static bool tikGetDecryptedTitleKey(void *dst, const void *src, u8 key_generatio
 
     return true;
 }
-
 static bool tikGetTitleKeyTypeFromRightsId(const FsRightsId *id, u8 *out)
+
 {
     if (!id || !out)
     {
@@ -661,16 +680,16 @@ static bool tikGetTicketEntryOffsetFromTicketList(save_ctx_t *save_ctx, u8 *buf,
     bool last_entry_found = false, success = false;
 
     /* Get FAT storage info for the ticket_list.bin stored within the opened system savefile. */
-    if (!save_get_fat_storage_from_file_entry_by_path(save_ctx, TIK_LIST_STORAGE_PATH, &fat_storage, &ticket_list_bin_size))
+    if (!save_get_fat_storage_from_file_entry_by_path(save_ctx, TIK_LIST_SAVEFILE_STORAGE_PATH, &fat_storage, &ticket_list_bin_size))
     {
-        LOG_MSG_ERROR("Failed to locate \"%s\" in ES %s ticket system save!", TIK_LIST_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
+        LOG_MSG_ERROR("Failed to locate \"%s\" in ES %s ticket system save!", TIK_LIST_SAVEFILE_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
         goto end;
     }
 
     /* Validate ticket_list.bin size. */
     if (ticket_list_bin_size < sizeof(TikListEntry) || (ticket_list_bin_size % sizeof(TikListEntry)) != 0)
     {
-        LOG_MSG_ERROR("Invalid size for \"%s\" in ES %s ticket system save! (0x%lX).", TIK_LIST_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type], ticket_list_bin_size);
+        LOG_MSG_ERROR("Invalid size for \"%s\" in ES %s ticket system save! (0x%lX).", TIK_LIST_SAVEFILE_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type], ticket_list_bin_size);
         goto end;
     }
 
@@ -683,7 +702,7 @@ static bool tikGetTicketEntryOffsetFromTicketList(save_ctx_t *save_ctx, u8 *buf,
         /* Read current chunk. */
         if ((br = save_allocation_table_storage_read(&fat_storage, buf, total_br, buf_size)) != buf_size)
         {
-            LOG_MSG_ERROR("Failed to read 0x%lX bytes chunk at offset 0x%lX from \"%s\" in ES %s ticket system save!", buf_size, total_br, TIK_LIST_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
+            LOG_MSG_ERROR("Failed to read 0x%lX bytes chunk at offset 0x%lX from \"%s\" in ES %s ticket system save!", buf_size, total_br, TIK_LIST_SAVEFILE_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
             break;
         }
 
@@ -737,23 +756,23 @@ static bool tikRetrieveTicketEntryFromTicketBin(save_ctx_t *save_ctx, u8 *buf, u
     bool is_volatile = false, success = false;
 
     /* Get FAT storage info for the ticket.bin stored within the opened system savefile. */
-    if (!save_get_fat_storage_from_file_entry_by_path(save_ctx, TIK_DB_STORAGE_PATH, &fat_storage, &ticket_bin_size))
+    if (!save_get_fat_storage_from_file_entry_by_path(save_ctx, TIK_DB_SAVEFILE_STORAGE_PATH, &fat_storage, &ticket_bin_size))
     {
-        LOG_MSG_ERROR("Failed to locate \"%s\" in ES %s ticket system save!", TIK_DB_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
+        LOG_MSG_ERROR("Failed to locate \"%s\" in ES %s ticket system save!", TIK_DB_SAVEFILE_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
         goto end;
     }
 
     /* Validate ticket.bin size. */
     if (ticket_bin_size < SIGNED_TIK_MIN_SIZE || (ticket_bin_size % SIGNED_TIK_MAX_SIZE) != 0 || ticket_bin_size < (ticket_offset + SIGNED_TIK_MAX_SIZE))
     {
-        LOG_MSG_ERROR("Invalid size for \"%s\" in ES %s ticket system save! (0x%lX).", TIK_DB_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type], ticket_bin_size);
+        LOG_MSG_ERROR("Invalid size for \"%s\" in ES %s ticket system save! (0x%lX).", TIK_DB_SAVEFILE_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type], ticket_bin_size);
         goto end;
     }
 
     /* Read ticket data. */
     if ((br = save_allocation_table_storage_read(&fat_storage, buf, ticket_offset, SIGNED_TIK_MAX_SIZE)) != SIGNED_TIK_MAX_SIZE)
     {
-        LOG_MSG_ERROR("Failed to read 0x%X-byte long ticket at offset 0x%lX from \"%s\" in ES %s ticket system save!", SIGNED_TIK_MAX_SIZE, ticket_offset, TIK_DB_STORAGE_PATH, \
+        LOG_MSG_ERROR("Failed to read 0x%X-byte long ticket at offset 0x%lX from \"%s\" in ES %s ticket system save!", SIGNED_TIK_MAX_SIZE, ticket_offset, TIK_DB_SAVEFILE_STORAGE_PATH, \
                                                                                                                        g_tikTitleKeyTypeStrings[titlekey_type]);
         goto end;
     }
@@ -768,7 +787,7 @@ static bool tikRetrieveTicketEntryFromTicketBin(save_ctx_t *save_ctx, u8 *buf, u
         /* Attempt to decrypt the ticket. */
         if (!tikDecryptVolatileTicket(buf, ticket_offset))
         {
-            LOG_MSG_ERROR("Unable to decrypt volatile ticket at offset 0x%lX in \"%s\" from ES %s ticket system save!", ticket_offset, TIK_DB_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
+            LOG_MSG_ERROR("Unable to decrypt volatile ticket at offset 0x%lX in \"%s\" from ES %s ticket system save!", ticket_offset, TIK_DB_SAVEFILE_STORAGE_PATH, g_tikTitleKeyTypeStrings[titlekey_type]);
             goto end;
         }
 

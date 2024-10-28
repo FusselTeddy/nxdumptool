@@ -31,6 +31,14 @@ ssize_t rodev_write(struct _reent *r, void *fd, const char *ptr, size_t len)
     DEVOPTAB_RETURN_UNSUPPORTED_OP;
 }
 
+int rodev_fstat(struct _reent *r, void *fd, struct stat *st)
+{
+    NX_IGNORE_ARG(fd);
+    NX_IGNORE_ARG(st);
+
+    DEVOPTAB_RETURN_UNSUPPORTED_OP;
+}
+
 int rodev_link(struct _reent *r, const char *existing, const char *newLink)
 {
     NX_IGNORE_ARG(existing);

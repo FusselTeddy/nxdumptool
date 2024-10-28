@@ -27,9 +27,8 @@
 
 /* Helper macros. */
 
-#define HFS_DEV_INIT_VARS       DEVOPTAB_INIT_VARS(HashFileSystemContext)
-#define HFS_DEV_INIT_FILE_VARS  DEVOPTAB_INIT_FILE_VARS(HashFileSystemContext, HashFileSystemFileState)
-#define HFS_DEV_INIT_DIR_VARS   DEVOPTAB_INIT_DIR_VARS(HashFileSystemContext, HashFileSystemDirectoryState)
+#define HFS_DEV_INIT_FILE_VARS  DEVOPTAB_INIT_FILE_VARS(HashFileSystemFileState)
+#define HFS_DEV_INIT_DIR_VARS   DEVOPTAB_INIT_DIR_VARS(HashFileSystemDirectoryState)
 #define HFS_DEV_INIT_FS_ACCESS  DEVOPTAB_DECL_FS_CTX(HashFileSystemContext)
 
 /* Type definitions. */
@@ -236,7 +235,7 @@ static int hfsdev_stat(struct _reent *r, const char *file, struct stat *st)
     u32 index = 0;
     HashFileSystemEntry *hfs_entry = NULL;
 
-    HFS_DEV_INIT_VARS;
+    DEVOPTAB_INIT_VARS;
     HFS_DEV_INIT_FS_ACCESS;
 
     /* Sanity check. */
@@ -368,13 +367,13 @@ static int hfsdev_statvfs(struct _reent *r, const char *path, struct statvfs *bu
 
     u64 ext_fs_size = 0;
 
-    HFS_DEV_INIT_VARS;
+    DEVOPTAB_INIT_VARS;
     HFS_DEV_INIT_FS_ACCESS;
 
     /* Sanity check. */
     if (!buf) DEVOPTAB_SET_ERROR_AND_EXIT(EINVAL);
 
-    //LOG_MSG_DEBUG("Getting filesystem stats for \"%s:\"", dev_ctx->name);
+    //LOG_MSG_DEBUG("Getting filesystem stats for \"%s:\".", dev_ctx->name);
 
     /* Get Hash FS total data size. */
     if (!hfsGetTotalDataSize(fs_ctx, &ext_fs_size)) DEVOPTAB_SET_ERROR_AND_EXIT(EIO);
@@ -407,8 +406,6 @@ static const char *hfsdev_get_truncated_path(struct _reent *r, const char *path)
     size_t len = 0;
     bool path_sep_skipped = false;
 
-    DEVOPTAB_DECL_ERROR_STATE;
-
     if (!r || !path || !*path) DEVOPTAB_SET_ERROR_AND_EXIT(EINVAL);
 
     //LOG_MSG_DEBUG("Input path: \"%s\".", path);
@@ -440,7 +437,7 @@ static const char *hfsdev_get_truncated_path(struct _reent *r, const char *path)
         p += units;
     } while(code >= ' ');
 
-    /* Verify fixed path length. */
+    /* Verify truncated path length. */
     len = strlen(path);
     if (!len && !path_sep_skipped) DEVOPTAB_SET_ERROR_AND_EXIT(EINVAL);
     if (len >= FS_MAX_PATH) DEVOPTAB_SET_ERROR_AND_EXIT(ENAMETOOLONG);

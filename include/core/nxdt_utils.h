@@ -114,9 +114,6 @@ bool utilsIsTerraUnit(void);
 /// Returns true if the application is running under applet mode.
 bool utilsIsAppletMode(void);
 
-/// Returns a pointer to the FsStorage object for the eMMC BIS System partition.
-FsStorage *utilsGetEmmcBisSystemPartitionStorage(void);
-
 /// Blocks HOME button presses, disables screen dimming and auto sleep and overclocks system CPU/MEM.
 /// Must be called before starting long-running processes.
 /// If state is set to false, regular system behavior is restored.
