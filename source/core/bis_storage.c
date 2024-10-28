@@ -43,10 +43,10 @@ static BisStorageFatFsContext *g_bisStorageContexts[FF_VOLUMES] = {0};
 
 /// Required by FatFs.
 const char *VolumeStr[FF_VOLUMES] = {
-    "prodinfof",
-    "safe",
-    "user",
-    "system",
+    "PRODINFOF",
+    "SAFE",
+    "USER",
+    "SYSTEM",
 };
 
 /* Function prototypes. */

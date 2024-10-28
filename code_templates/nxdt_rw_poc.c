@@ -30,6 +30,7 @@
 #include <core/usb.h>
 #include <core/devoptab/nxdt_devoptab.h>
 #include <core/system_update.h>
+#include <core/bis_storage.h>
 
 #define BLOCK_SIZE      USB_TRANSFER_BUFFER_SIZE
 #define WAIT_TIME_LIMIT 30
@@ -85,7 +86,8 @@ typedef enum {
     MenuId_NcaFsSectionsSubMenu = 14,
     MenuId_SystemTitles         = 15,
     MenuId_SystemUpdate         = 16,
-    MenuId_Count                = 17
+    MenuId_BrowseEmmc           = 17,
+    MenuId_Count                = 18
 } MenuId;
 
 typedef struct
@@ -233,8 +235,11 @@ static bool browseNintendoContentArchiveFsSection(void *userdata);
 
 static bool saveSystemUpdateDump(void *userdata);
 
+static bool browseEmmcPartition(void *userdata);
+
 static bool fsBrowser(const char *mount_name, const char *base_out_path);
 static bool fsBrowserGetDirEntries(const char *dir_path, FsBrowserEntry **out_entries, u32 *out_entry_count);
+static int fsBrowserDirEntrySortFunction(const void *a, const void *b);
 static bool fsBrowserDumpFile(const char *dir_path, const FsBrowserEntry *entry, const char *base_out_path);
 static bool fsBrowserDumpHighlightedEntries(const char *dir_path, const FsBrowserEntry *entries, u32 entries_count, const char *base_out_path);
 
@@ -989,12 +994,42 @@ static MenuElement *g_dumpSystemUpdateMenuElements[] = {
     NULL
 };
 
-static Menu g_dumpSystemUpdateMenu = {
-    .id = MenuId_SystemUpdate,
-    .parent = NULL,
-    .selected = 0,
-    .scroll = 0,
-    .elements = g_dumpSystemUpdateMenuElements
+static u8 g_emmcProdinfofPartition = FsBisPartitionId_CalibrationFile;
+static u8 g_emmcSafePartition = FsBisPartitionId_SafeMode;
+static u8 g_emmcUserPartition = FsBisPartitionId_User;
+static u8 g_emmcSystemPartition = FsBisPartitionId_System;
+
+static MenuElement *g_emmcBrowseMenuElements[] = {
+    &(MenuElement){
+        .str = "browse prodinfof emmc partition",
+        .child_menu = NULL,
+        .task_func = &browseEmmcPartition,
+        .element_options = NULL,
+        .userdata = &g_emmcProdinfofPartition
+    },
+    &(MenuElement){
+        .str = "browse safe emmc partition",
+        .child_menu = NULL,
+        .task_func = &browseEmmcPartition,
+        .element_options = NULL,
+        .userdata = &g_emmcSafePartition
+    },
+    &(MenuElement){
+        .str = "browse user emmc partition",
+        .child_menu = NULL,
+        .task_func = &browseEmmcPartition,
+        .element_options = NULL,
+        .userdata = &g_emmcUserPartition
+    },
+    &(MenuElement){
+        .str = "browse system mmc partition",
+        .child_menu = NULL,
+        .task_func = &browseEmmcPartition,
+        .element_options = NULL,
+        .userdata = &g_emmcSystemPartition
+    },
+    &g_storageMenuElement,
+    NULL
 };
 
 static MenuElement *g_rootMenuElements[] = {
@@ -1027,7 +1062,26 @@ static MenuElement *g_rootMenuElements[] = {
     },
     &(MenuElement){
         .str = "dump system update",
-        .child_menu = &g_dumpSystemUpdateMenu,
+        .child_menu = &(Menu){
+            .id = MenuId_SystemUpdate,
+            .parent = NULL,
+            .selected = 0,
+            .scroll = 0,
+            .elements = g_dumpSystemUpdateMenuElements
+        },
+        .task_func = NULL,
+        .element_options = NULL,
+        .userdata = NULL
+    },
+    &(MenuElement){
+        .str = "browse emmc partitions",
+        .child_menu = &(Menu){
+            .id = MenuId_BrowseEmmc,
+            .parent = NULL,
+            .selected = 0,
+            .scroll = 0,
+            .elements = g_emmcBrowseMenuElements
+        },
         .task_func = NULL,
         .element_options = NULL,
         .userdata = NULL
@@ -1382,7 +1436,7 @@ int main(int argc, char *argv[])
                     break;
                 }
 
-                if ((cur_menu->id == MenuId_NcaFsSectionsSubMenu && cur_menu->selected == 1) || cur_menu->id == MenuId_BrowseHFS)
+                if ((cur_menu->id == MenuId_NcaFsSectionsSubMenu && cur_menu->selected == 1) || cur_menu->id == MenuId_BrowseHFS || cur_menu->id == MenuId_BrowseEmmc)
                 {
                     show_button_prompt = false;
 
@@ -3668,6 +3722,49 @@ end:
     return success;
 }
 
+static bool browseEmmcPartition(void *userdata)
+{
+    u8 bis_partition_id = (userdata ? *((u8*)userdata) : 0);
+    const char *mount_name = NULL;
+    char *base_out_path = NULL;
+
+    bool success = false;
+
+    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System)
+    {
+        consolePrint("invalid bis partition id! (%u)\n", bis_partition_id);
+        goto end;
+    }
+
+    /* Mount BIS partition. */
+    if (!bisStorageMountPartition(bis_partition_id, &mount_name))
+    {
+        consolePrint("failed to mount bis partition %u!\n", bis_partition_id);
+        goto end;
+    }
+
+    /* Generate output base path. */
+    base_out_path = generateOutputGameCardFileName(utilsGetAtmosphereEmummcStatus() ? "emuMMC" : "sysMMC", mount_name, false);
+    if (!base_out_path) goto end;
+
+    /* Display file browser. */
+    success = fsBrowser(mount_name, base_out_path);
+
+end:
+    /* Free data. */
+    if (base_out_path) free(base_out_path);
+
+    if (mount_name) bisStorageUnmountPartition(bis_partition_id);
+
+    if (!success && g_appletStatus)
+    {
+        consolePrint("press any button to continue\n");
+        utilsWaitForButtonPress(0);
+    }
+
+    return success;
+}
+
 static bool fsBrowser(const char *mount_name, const char *base_out_path)
 {
     char dir_path[FS_MAX_PATH] = {0};
@@ -3701,8 +3798,13 @@ static bool fsBrowser(const char *mount_name, const char *base_out_path)
         consolePrint("press + to exit\n");
         consolePrint("______________________________\n\n");
 
-        consolePrint("entry: %u / %u\n", selected + 1, entries_count);
-        consolePrint("highlighted: %u / %u\n", highlighted, entries_count);
+        if (entries_count)
+        {
+            consolePrint("entry: %u / %u\n", selected + 1, entries_count);
+            consolePrint("highlighted: %u / %u\n", highlighted, entries_count);
+            consolePrint("selected: %s\n", entries[selected].dt.d_name);
+        }
+
         consolePrint("current path: %s\n", dir_path);
         consolePrint("______________________________\n\n");
 
@@ -3957,6 +4059,9 @@ static bool fsBrowserGetDirEntries(const char *dir_path, FsBrowserEntry **out_en
         goto end;
     }
 
+    /* Sort entries. */
+    if (count > 1) qsort(entries, count, sizeof(FsBrowserEntry), &fsBrowserDirEntrySortFunction);
+
     /* Update output pointers. */
     *out_entries = entries;
     *out_entry_count = count;
@@ -3970,6 +4075,23 @@ end:
     if (!success && entries) free(entries);
 
     return success;
+}
+
+static int fsBrowserDirEntrySortFunction(const void *a, const void *b)
+{
+    const FsBrowserEntry *entry_1 = (const FsBrowserEntry*)a;
+    const FsBrowserEntry *entry_2 = (const FsBrowserEntry*)b;
+
+    if (entry_1->dt.d_type < entry_2->dt.d_type)
+    {
+        return -1;
+    } else
+    if (entry_1->dt.d_type > entry_2->dt.d_type)
+    {
+        return 1;
+    }
+
+    return strcasecmp(entry_1->dt.d_name, entry_2->dt.d_name);
 }
 
 static bool fsBrowserDumpFile(const char *dir_path, const FsBrowserEntry *entry, const char *base_out_path)

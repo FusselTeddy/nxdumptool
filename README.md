@@ -37,8 +37,8 @@ Currently planned changes for this branch include:
 * Control.nacp patching while dumping NSPs (lets you patch screenshot, video, user account and HDCP restrictions). :white_check_mark:
 * Partition FS / Hash FS / RomFS browser using custom devoptab wrappers. :white_check_mark:
 * Full system update dumps with checksum and signature verification. :white_check_mark:
+* `FsStorage` + `FatFs` based eMMC browser using a custom devoptab wrapper (allows copying files protected by the FS sysmodule at runtime). :white_check_mark:
 * Batch NSP dumps. :x:
-* `FsFileSystem` + `FatFs` based eMMC browser using a custom devoptab wrapper (allows copying files protected by the FS sysmodule at runtime). :x:
 * New UI using a [customized borealis fork](https://github.com/DarkMatterCore/borealis/tree/nxdumptool-legacy). :warning:
 
 Legend:
