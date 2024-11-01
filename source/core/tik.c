@@ -331,8 +331,6 @@ static bool tikRetrieveTicketFromEsSaveDataByRightsId(Ticket *dst, const FsRight
 
     bool success = false;
 
-    bisStorageControlMutex(true);
-
     /* Allocate memory to retrieve the ticket. */
     if (!(buf = malloc(buf_size)))
     {
@@ -347,8 +345,8 @@ static bool tikRetrieveTicketFromEsSaveDataByRightsId(Ticket *dst, const FsRight
         goto end;
     }
 
-    /* Mount eMMC BIS System partition. */
-    if (!bisStorageMountPartition(FsBisPartitionId_System, &mount_name))
+    /* Retrieve mount name for the eMMC BIS System partition. */
+    if (!(mount_name = bisStorageGetMountNameByBisPartitionId(FsBisPartitionId_System)))
     {
         LOG_MSG_ERROR("Failed to mount eMMC BIS System partition!");
         goto end;
@@ -391,11 +389,7 @@ static bool tikRetrieveTicketFromEsSaveDataByRightsId(Ticket *dst, const FsRight
 end:
     if (save_ctx) save_close_savefile(&save_ctx);
 
-    if (mount_name) bisStorageUnmountPartition(FsBisPartitionId_System);
-
     if (buf) free(buf);
-
-    bisStorageControlMutex(false);
 
     return success;
 }
@@ -560,8 +554,8 @@ static bool tikGetDecryptedTitleKey(void *dst, const void *src, u8 key_generatio
 
     return true;
 }
-static bool tikGetTitleKeyTypeFromRightsId(const FsRightsId *id, u8 *out)
 
+static bool tikGetTitleKeyTypeFromRightsId(const FsRightsId *id, u8 *out)
 {
     if (!id || !out)
     {

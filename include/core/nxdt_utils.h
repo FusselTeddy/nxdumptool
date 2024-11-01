@@ -32,10 +32,10 @@ extern "C" {
 #endif
 
 /* Scoped lock macro. */
-#define SCOPED_LOCK(mtx)        for(UtilsScopedLock ANONYMOUS_VARIABLE(scoped_lock) CLEANUP(utilsUnlockScope) = utilsLockScope(mtx); ANONYMOUS_VARIABLE(scoped_lock).cond; ANONYMOUS_VARIABLE(scoped_lock).cond = 0)
+#define SCOPED_LOCK(mtx)        for(UtilsScopedLock ANONYMOUS_VARIABLE(scoped_lock_) CLEANUP(utilsUnlockScope) = utilsLockScope(mtx); ANONYMOUS_VARIABLE(scoped_lock_).cond; ANONYMOUS_VARIABLE(scoped_lock_).cond = 0)
 
 /* Scoped try lock macro. */
-#define SCOPED_TRY_LOCK(mtx)    for(UtilsScopedLock ANONYMOUS_VARIABLE(scoped_lock) CLEANUP(utilsUnlockScope) = utilsTryLockScope(mtx); ANONYMOUS_VARIABLE(scoped_lock).cond; ANONYMOUS_VARIABLE(scoped_lock).cond = 0)
+#define SCOPED_TRY_LOCK(mtx)    for(UtilsScopedLock ANONYMOUS_VARIABLE(scoped_lock_) CLEANUP(utilsUnlockScope) = utilsTryLockScope(mtx); ANONYMOUS_VARIABLE(scoped_lock_).cond; ANONYMOUS_VARIABLE(scoped_lock_).cond = 0)
 
 /// Used by scoped locks.
 typedef struct {
@@ -150,7 +150,7 @@ void utilsGenerateHexString(char *dst, size_t dst_size, const void *src, size_t 
 /// 'src' must match the regex /^(?:[A-Fa-f0-9]{2})+$/.
 /// 'src_size' may be zero, in which case strlen() will be used to determine the length of 'src'. Furthermore, 'src_size' must always be a multiple of 2.
 /// 'dst_size' must be at least 'src_size / 2'.
-/// Returns false if there's an error validating input arguments.
+/// Returns false if there's an error.
 bool utilsParseHexString(void *dst, size_t dst_size, const char *src, size_t src_size);
 
 /// Formats the provided 'size' value to a human-readable size string and stores it in 'dst'.

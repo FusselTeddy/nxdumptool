@@ -104,6 +104,8 @@
 #define LOG_BUF_SIZE                    0x400000                                                        /* 4 MiB. */
 #define LOG_FORCE_FLUSH                 0                                                               /* Forces a log buffer flush each time the logfile is written to. */
 
+#define BIS_FAT_PARTITION_COUNT         4
+
 /// Reference: https://docs.microsoft.com/en-us/windows/win32/fileio/filesystem-functionality-comparison#limits.
 /// Reference: https://en.wikipedia.org/wiki/Comparison_of_file_systems#Limits.
 /// Most modern filesystems use a 255-byte limit instead of 255-character/codepoint limit, so that's what we're gonna use.

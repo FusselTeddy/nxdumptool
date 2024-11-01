@@ -3730,16 +3730,9 @@ static bool browseEmmcPartition(void *userdata)
 
     bool success = false;
 
-    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System)
+    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System || !(mount_name = bisStorageGetMountNameByBisPartitionId(bis_partition_id)))
     {
         consolePrint("invalid bis partition id! (%u)\n", bis_partition_id);
-        goto end;
-    }
-
-    /* Mount BIS partition. */
-    if (!bisStorageMountPartition(bis_partition_id, &mount_name))
-    {
-        consolePrint("failed to mount bis partition %u!\n", bis_partition_id);
         goto end;
     }
 
@@ -3753,8 +3746,6 @@ static bool browseEmmcPartition(void *userdata)
 end:
     /* Free data. */
     if (base_out_path) free(base_out_path);
-
-    if (mount_name) bisStorageUnmountPartition(bis_partition_id);
 
     if (!success && g_appletStatus)
     {

@@ -283,6 +283,9 @@ bool utilsInitializeResources(void)
         /* Setup an applet hook to change the hardware clocks after a system mode change (docked <-> undocked). */
         appletHook(&g_systemOverclockCookie, utilsOverclockSystemAppletHook, NULL);
 
+        /* Initialize eMMC BIS storage interface. */
+        if (!bisStorageInitialize()) break;
+
         /* Enable video recording if we're running under title override mode. */
         if (!utilsIsAppletMode())
         {
@@ -335,11 +338,11 @@ void utilsCloseResources(void)
     {
         LOG_MSG_INFO("Shutting down...");
 
+        /* Close eMMC BIS storage interface. */
+        bisStorageExit();
+
         /* Unmount all custom devoptab devices. */
         devoptabUnmountAllDevices();
-
-        /* Unmount all eMMC BIS partitions. */
-        bisStorageUnmountAllPartitions();
 
         /* Unset long running process state. */
         utilsSetLongRunningProcessState(false);

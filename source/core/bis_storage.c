@@ -24,13 +24,33 @@
 #include <core/devoptab/nxdt_devoptab.h>
 
 #define BIS_STORAGE_INDEX(type)         ((type) - FsBisPartitionId_CalibrationFile)
+
+#define BIS_STORAGE_GPT_NAME(type)      g_bisStorageGptPartitionNames[BIS_STORAGE_INDEX(type)]
+#define BIS_STORAGE_SYSINIT_NAME(type)  g_bisStorageSystemInitializerPartitionNames[BIS_STORAGE_INDEX(type)]
+#define BIS_STORAGE_MOUNT_NAME(type)    g_bisStorageDevoptabMountNames[BIS_STORAGE_INDEX(type)]
+
 #define BIS_STORAGE_FATFS_CTX(type)     g_bisStorageContexts[BIS_STORAGE_INDEX(type)]
-#define BIS_STORAGE_MOUNT_NAME(type)    VolumeStr[BIS_STORAGE_INDEX(type)]
+
+#define BIS_GET_NAME_FUNC(property, field) \
+const char *bisStorageGet##property##ByBisPartitionId(u8 bis_partition_id) { \
+    const char *ret = NULL; \
+    SCOPED_LOCK(&g_bisStorageMutex) { \
+        BisStorageFatFsContext *bis_fatfs_ctx = NULL; \
+        if (!g_bisStorageInterfaceInit || bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System || \
+            !(bis_fatfs_ctx = BIS_STORAGE_FATFS_CTX(bis_partition_id))) break; \
+        ret = bis_fatfs_ctx->field; \
+    } \
+    return ret; \
+}
 
 /* Type definitions. */
 
 typedef struct {
     u8 bis_partition_id;    ///< FsBisPartitionId.
+    const char *gpt_name;
+    const char *sysinit_name;
+    const char *devoptab_mount_name;
+    char fatfs_mount_name[4];
     FsStorage bis_storage;
     FATFS fatfs;
 } BisStorageFatFsContext;
@@ -38,77 +58,72 @@ typedef struct {
 /* Global variables. */
 
 static Mutex g_bisStorageMutex = 0;
+static BisStorageFatFsContext *g_bisStorageContexts[BIS_FAT_PARTITION_COUNT] = {NULL};
+static bool g_bisStorageInterfaceInit = false;
 
-static BisStorageFatFsContext *g_bisStorageContexts[FF_VOLUMES] = {0};
+static const char *g_bisStorageGptPartitionNames[BIS_FAT_PARTITION_COUNT] = {
+    [BIS_STORAGE_INDEX(FsBisPartitionId_CalibrationFile)] = "PRODINFOF",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_SafeMode)]        = "SAFE",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_User)]            = "USER",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_System)]          = "SYSTEM"
+};
 
-/// Required by FatFs.
-const char *VolumeStr[FF_VOLUMES] = {
-    "PRODINFOF",
-    "SAFE",
-    "USER",
-    "SYSTEM",
+static const char *g_bisStorageSystemInitializerPartitionNames[BIS_FAT_PARTITION_COUNT] = {
+    [BIS_STORAGE_INDEX(FsBisPartitionId_CalibrationFile)] = "CalibrationFile",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_SafeMode)]        = "SafeMode",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_User)]            = "User",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_System)]          = "System"
+};
+
+static const char *g_bisStorageDevoptabMountNames[BIS_FAT_PARTITION_COUNT] = {
+    [BIS_STORAGE_INDEX(FsBisPartitionId_CalibrationFile)] = "bisprodinfof",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_SafeMode)]        = "bissafe",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_User)]            = "bisuser",
+    [BIS_STORAGE_INDEX(FsBisPartitionId_System)]          = "bissystem"
 };
 
 /* Function prototypes. */
 
-static void _bisStorageUnmountPartition(u8 bis_partition_id);
+NX_INLINE bool bisStorageMountAllPartitions(void);
+NX_INLINE void bisStorageUnmountAllPartitions(void);
 
-static BisStorageFatFsContext *bisStorageInitializeFatFsContext(u8 bis_partition_id);
+static bool bisStorageMountPartition(u8 bis_partition_id);
+static void bisStorageUnmountPartition(u8 bis_partition_id);
+
 static void bisStorageFreeFatFsContext(BisStorageFatFsContext **bis_fatfs_ctx);
 
-bool bisStorageMountPartition(u8 bis_partition_id, const char **out_mount_name)
+bool bisStorageInitialize(void)
 {
-    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System || !out_mount_name)
-    {
-        LOG_MSG_ERROR("Invalid parameters!");
-        return false;
-    }
-
     bool ret = false;
 
     SCOPED_LOCK(&g_bisStorageMutex)
     {
-        BisStorageFatFsContext *bis_fatfs_ctx = NULL;
+        ret = g_bisStorageInterfaceInit;
+        if (ret) break;
 
-        /* Check if we have already mounted this eMMC partition. */
-        bis_fatfs_ctx = BIS_STORAGE_FATFS_CTX(bis_partition_id);
-        if (bis_fatfs_ctx)
-        {
-            *out_mount_name = BIS_STORAGE_MOUNT_NAME(bis_partition_id);
-            ret = true;
-            break;
-        }
-
-        /* Initialize BIS FatFs context. */
-        bis_fatfs_ctx = bisStorageInitializeFatFsContext(bis_partition_id);
-        if (!bis_fatfs_ctx) break;
-
-        /* Update output. */
-        *out_mount_name = BIS_STORAGE_MOUNT_NAME(bis_partition_id);
-        ret = true;
+        /* Mount all eMMC BIS FAT partitions. */
+        ret = g_bisStorageInterfaceInit = bisStorageMountAllPartitions();
     }
 
     return ret;
 }
 
-void bisStorageUnmountPartition(u8 bis_partition_id)
-{
-    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System)
-    {
-        LOG_MSG_ERROR("Invalid parameters!");
-        return;
-    }
-
-    SCOPED_LOCK(&g_bisStorageMutex) _bisStorageUnmountPartition(bis_partition_id);
-}
-
-void bisStorageUnmountAllPartitions(void)
+void bisStorageExit(void)
 {
     SCOPED_LOCK(&g_bisStorageMutex)
     {
-        for(u8 i = 0; i < FF_VOLUMES; i++) _bisStorageUnmountPartition(i + FsBisPartitionId_CalibrationFile);
+        /* Unmount all eMMC BIS FAT partitions. */
+        bisStorageUnmountAllPartitions();
+
+        g_bisStorageInterfaceInit = false;
     }
 }
+
+BIS_GET_NAME_FUNC(GptPartitionName, gpt_name);
+
+BIS_GET_NAME_FUNC(SystemInitializerPartitionName, sysinit_name);
+
+BIS_GET_NAME_FUNC(MountName, devoptab_mount_name);
 
 FsStorage *bisStorageGetFsStorageByFatFsDriveNumber(u8 drive_number)
 {
@@ -116,12 +131,8 @@ FsStorage *bisStorageGetFsStorageByFatFsDriveNumber(u8 drive_number)
 
     SCOPED_LOCK(&g_bisStorageMutex)
     {
-        for(u8 i = 0; i < FF_VOLUMES; i++)
-        {
-            if (!g_bisStorageContexts[i] || g_bisStorageContexts[i]->fatfs.pdrv != drive_number) continue;
-            bis_storage = &(g_bisStorageContexts[i]->bis_storage);
-            break;
-        }
+        if (drive_number >= BIS_FAT_PARTITION_COUNT || !g_bisStorageContexts[drive_number]) break;
+        bis_storage = &(g_bisStorageContexts[drive_number]->bis_storage);
     }
 
     return bis_storage;
@@ -141,8 +152,107 @@ void bisStorageControlMutex(bool lock)
     }
 }
 
-static void _bisStorageUnmountPartition(u8 bis_partition_id)
+NX_INLINE bool bisStorageMountAllPartitions(void)
 {
+    bool ret = false;
+
+    for(u8 i = FsBisPartitionId_CalibrationFile; i <= FsBisPartitionId_System; i++)
+    {
+        ret = bisStorageMountPartition(i);
+        if (!ret) break;
+    }
+
+    return ret;
+}
+
+NX_INLINE void bisStorageUnmountAllPartitions(void)
+{
+    for(u8 i = FsBisPartitionId_CalibrationFile; i <= FsBisPartitionId_System; i++) bisStorageUnmountPartition(i);
+}
+
+static bool bisStorageMountPartition(u8 bis_partition_id)
+{
+    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System)
+    {
+        LOG_MSG_ERROR("Invalid parameters!");
+        return false;
+    }
+
+    BisStorageFatFsContext *bis_fatfs_ctx = NULL;
+    Result rc = 0;
+    FRESULT fr = FR_OK;
+    bool success = false;
+
+    /* Check if we have already mounted this eMMC partition. */
+    if (BIS_STORAGE_FATFS_CTX(bis_partition_id))
+    {
+        success = true;
+        goto end;
+    }
+
+    /* Allocate memory for our BIS FatFs context. */
+    bis_fatfs_ctx = calloc(1, sizeof(BisStorageFatFsContext));
+    if (!bis_fatfs_ctx)
+    {
+        LOG_MSG_ERROR("Failed to allocate memory for BIS FatFs context! (partition ID %u).", bis_partition_id);
+        goto end;
+    }
+
+    /* Update context. */
+    bis_fatfs_ctx->bis_partition_id = bis_partition_id;
+    bis_fatfs_ctx->gpt_name = BIS_STORAGE_GPT_NAME(bis_partition_id);
+    bis_fatfs_ctx->sysinit_name = BIS_STORAGE_SYSINIT_NAME(bis_partition_id);
+    bis_fatfs_ctx->devoptab_mount_name = BIS_STORAGE_MOUNT_NAME(bis_partition_id);
+    snprintf(bis_fatfs_ctx->fatfs_mount_name, sizeof(bis_fatfs_ctx->fatfs_mount_name), "%u:", BIS_STORAGE_INDEX(bis_partition_id));
+
+    /* Open BIS storage. */
+    rc = fsOpenBisStorage(&(bis_fatfs_ctx->bis_storage), bis_fatfs_ctx->bis_partition_id);
+    if (R_FAILED(rc))
+    {
+        LOG_MSG_ERROR("Failed to open BIS storage for %s partition! (0x%X).", bis_fatfs_ctx->gpt_name, rc);
+        goto end;
+    }
+
+    /* Update context array. */
+    /* FatFs diskio demands we do this here. */
+    BIS_STORAGE_FATFS_CTX(bis_partition_id) = bis_fatfs_ctx;
+
+    /* Mount BIS partition using FatFs. */
+    fr = f_mount(&(bis_fatfs_ctx->fatfs), bis_fatfs_ctx->fatfs_mount_name, 1);
+    if (fr != FR_OK)
+    {
+        LOG_MSG_ERROR("Failed to mount %s partition via FatFs! (%u).", bis_fatfs_ctx->gpt_name, fr);
+        goto end;
+    }
+
+    /* Mount devoptab device. */
+    if (!devoptabMountFatFsDevice(&(bis_fatfs_ctx->fatfs), bis_fatfs_ctx->devoptab_mount_name))
+    {
+        LOG_MSG_ERROR("Failed to mount devoptab device for %s partition!", bis_fatfs_ctx->gpt_name);
+        goto end;
+    }
+
+    /* Update flag. */
+    success = true;
+
+end:
+    if (!success && bis_fatfs_ctx)
+    {
+        bisStorageFreeFatFsContext(&bis_fatfs_ctx);
+        BIS_STORAGE_FATFS_CTX(bis_partition_id) = NULL;
+    }
+
+    return success;
+}
+
+static void bisStorageUnmountPartition(u8 bis_partition_id)
+{
+    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System)
+    {
+        LOG_MSG_ERROR("Invalid parameters!");
+        return;
+    }
+
     /* Check if we have already mounted this eMMC partition. */
     BisStorageFatFsContext *bis_fatfs_ctx = BIS_STORAGE_FATFS_CTX(bis_partition_id);
     if (!bis_fatfs_ctx) return;
@@ -154,87 +264,20 @@ static void _bisStorageUnmountPartition(u8 bis_partition_id)
     BIS_STORAGE_FATFS_CTX(bis_partition_id) = NULL;
 }
 
-static BisStorageFatFsContext *bisStorageInitializeFatFsContext(u8 bis_partition_id)
-{
-    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System)
-    {
-        LOG_MSG_ERROR("Invalid parameters!");
-        return NULL;
-    }
-
-    BisStorageFatFsContext *bis_fatfs_ctx = NULL;
-
-    Result rc = 0;
-
-    FRESULT fr = FR_OK;
-    const char *name = BIS_STORAGE_MOUNT_NAME(bis_partition_id);
-
-    bool success = false;
-
-    /* Allocate memory for our output context. */
-    bis_fatfs_ctx = calloc(1, sizeof(BisStorageFatFsContext));
-    if (!bis_fatfs_ctx)
-    {
-        LOG_MSG_ERROR("Failed to allocate memory for BIS FatFs context! (partition ID %u).", bis_partition_id);
-        goto end;
-    }
-
-    /* Set BIS partition ID. */
-    bis_fatfs_ctx->bis_partition_id = bis_partition_id;
-
-    /* Open BIS storage. */
-    rc = fsOpenBisStorage(&(bis_fatfs_ctx->bis_storage), bis_fatfs_ctx->bis_partition_id);
-    if (R_FAILED(rc))
-    {
-        LOG_MSG_ERROR("Failed to open eMMC BIS partition storage! (0x%X, partition ID %u).", rc, bis_partition_id);
-        goto end;
-    }
-
-    /* Update context array. */
-    /* FatFs diskio demands we do this here. */
-    BIS_STORAGE_FATFS_CTX(bis_partition_id) = bis_fatfs_ctx;
-
-    /* Mount BIS partition using FatFs. */
-    fr = f_mount(&(bis_fatfs_ctx->fatfs), name, 1);
-    if (fr != FR_OK)
-    {
-        LOG_MSG_ERROR("Failed to mount eMMC BIS partition via FatFs! (%u, partition ID %u).", fr, bis_partition_id);
-        goto end;
-    }
-
-    /* Mount devoptab device. */
-    if (!devoptabMountFatFsDevice(&(bis_fatfs_ctx->fatfs), name))
-    {
-        LOG_MSG_ERROR("Failed to mount devoptab device for eMMC BIS partition %u!", bis_partition_id);
-        goto end;
-    }
-
-    /* Update flag. */
-    success = true;
-
-end:
-    if (!success)
-    {
-        bisStorageFreeFatFsContext(&bis_fatfs_ctx);
-        BIS_STORAGE_FATFS_CTX(bis_partition_id) = NULL;
-    }
-
-    return bis_fatfs_ctx;
-}
-
 static void bisStorageFreeFatFsContext(BisStorageFatFsContext **bis_fatfs_ctx)
 {
     if (!bis_fatfs_ctx || !*bis_fatfs_ctx) return;
 
-    if ((*bis_fatfs_ctx)->fatfs.fs_type)
+    BisStorageFatFsContext *ctx = *bis_fatfs_ctx;
+
+    if (ctx->fatfs.fs_type)
     {
-        const char *name = BIS_STORAGE_MOUNT_NAME((*bis_fatfs_ctx)->bis_partition_id);
-        devoptabUnmountDevice(name);
-        f_unmount(name);
+        devoptabUnmountDevice(ctx->devoptab_mount_name);
+        f_unmount(ctx->fatfs_mount_name);
     }
 
-    if (serviceIsActive(&((*bis_fatfs_ctx)->bis_storage.s))) fsStorageClose(&((*bis_fatfs_ctx)->bis_storage));
+    if (serviceIsActive(&(ctx->bis_storage.s))) fsStorageClose(&(ctx->bis_storage));
 
-    free(*bis_fatfs_ctx);
-    *bis_fatfs_ctx = NULL;
+    free(ctx);
+    ctx = *bis_fatfs_ctx = NULL;
 }

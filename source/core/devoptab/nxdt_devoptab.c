@@ -22,7 +22,7 @@
 #include <core/nxdt_utils.h>
 #include <core/devoptab/nxdt_devoptab.h>
 
-#define DEVOPTAB_DEVICE_COUNT   4
+#define DEVOPTAB_DEVICE_COUNT   8
 
 /* Type definitions. */
 
@@ -37,9 +37,7 @@ typedef enum {
 /* Global variables. */
 
 static Mutex g_devoptabMutex = 0;
-
 static DevoptabDeviceContext g_devoptabDevices[DEVOPTAB_DEVICE_COUNT] = {0};
-static const u32 g_devoptabDeviceCount = MAX_ELEMENTS(g_devoptabDevices);
 
 /* Function prototypes. */
 
@@ -139,7 +137,7 @@ void devoptabUnmountAllDevices(void)
     SCOPED_LOCK(&g_devoptabMutex)
     {
         /* Loop through all of our device entries and reset them all. */
-        for(u32 i = 0; i < g_devoptabDeviceCount; i++) devoptabResetDevice(&(g_devoptabDevices[i]));
+        for(u32 i = 0; i < DEVOPTAB_DEVICE_COUNT; i++) devoptabResetDevice(&(g_devoptabDevices[i]));
     }
 }
 
@@ -220,6 +218,8 @@ static bool devoptabMountDevice(void *fs_ctx, const char *name, u8 type)
         goto end;
     }
 
+    LOG_MSG_DEBUG("Successfully mounted device \"%s:\".", dev_ctx->name);
+
     /* Update flags. */
     ret = dev_ctx->initialized = true;
 
@@ -233,7 +233,7 @@ static DevoptabDeviceContext *devoptabFindDevice(const char *name)
 {
     DevoptabDeviceContext *dev_ctx = NULL;
 
-    for(u32 i = 0; i < g_devoptabDeviceCount; i++)
+    for(u32 i = 0; i < DEVOPTAB_DEVICE_COUNT; i++)
     {
         dev_ctx = &(g_devoptabDevices[i]);
 

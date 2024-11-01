@@ -61,15 +61,9 @@ bool certRetrieveCertificateByName(Certificate *dst, const char *name)
 
     SCOPED_LOCK(&g_esCertSaveMutex)
     {
-        bisStorageControlMutex(true);
-
-        if (certOpenEsCertSaveFile())
-        {
-            ret = _certRetrieveCertificateByName(dst, name);
-            certCloseEsCertSaveFile();
-        }
-
-        bisStorageControlMutex(false);
+        if (!certOpenEsCertSaveFile()) break;
+        ret = _certRetrieveCertificateByName(dst, name);
+        certCloseEsCertSaveFile();
     }
 
     return ret;
@@ -87,15 +81,9 @@ bool certRetrieveCertificateChainBySignatureIssuer(CertificateChain *dst, const 
 
     SCOPED_LOCK(&g_esCertSaveMutex)
     {
-        bisStorageControlMutex(true);
-
-        if (certOpenEsCertSaveFile())
-        {
-            ret = _certRetrieveCertificateChainBySignatureIssuer(dst, issuer);
-            certCloseEsCertSaveFile();
-        }
-
-        bisStorageControlMutex(false);
+        if (!certOpenEsCertSaveFile()) break;
+        ret = _certRetrieveCertificateChainBySignatureIssuer(dst, issuer);
+        certCloseEsCertSaveFile();
     }
 
     return ret;
@@ -207,8 +195,8 @@ static bool certOpenEsCertSaveFile(void)
     char savefile_path[64] = {0};
     bool success = false;
 
-    /* Mount eMMC BIS System partition. */
-    if (!bisStorageMountPartition(FsBisPartitionId_System, &mount_name))
+    /* Retrieve mount name for the eMMC BIS System partition. */
+    if (!(mount_name = bisStorageGetMountNameByBisPartitionId(FsBisPartitionId_System)))
     {
         LOG_MSG_ERROR("Failed to mount eMMC BIS System partition!");
         goto end;
@@ -229,8 +217,6 @@ static bool certOpenEsCertSaveFile(void)
     success = true;
 
 end:
-    if (!success && mount_name) bisStorageUnmountPartition(FsBisPartitionId_System);
-
     return success;
 }
 
@@ -239,8 +225,6 @@ static void certCloseEsCertSaveFile(void)
     if (!g_esCertSaveCtx) return;
 
     save_close_savefile(&g_esCertSaveCtx);
-
-    bisStorageUnmountPartition(FsBisPartitionId_System);
 }
 
 static bool _certRetrieveCertificateByName(Certificate *dst, const char *name)
