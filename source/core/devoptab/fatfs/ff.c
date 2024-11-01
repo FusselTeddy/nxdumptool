@@ -20,8 +20,8 @@
 
 
 #include <string.h>
-#include <core/fatfs/ff.h>			/* Declarations of FatFs API */
-#include <core/fatfs/diskio.h>		/* Declarations of device I/O functions */
+#include <core/devoptab/fatfs/ff.h>			/* Declarations of FatFs API */
+#include <core/devoptab/fatfs/diskio.h>		/* Declarations of device I/O functions */
 
 
 /*--------------------------------------------------------------------------

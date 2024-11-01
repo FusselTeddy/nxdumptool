@@ -24,7 +24,6 @@
 #include <core/nxdt_utils.h>
 #include <core/devoptab/nxdt_devoptab.h>
 #include <core/devoptab/ro_dev.h>
-#include <core/fatfs/ff.h>
 
 /* Helper macros. */
 

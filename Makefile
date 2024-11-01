@@ -76,7 +76,7 @@ BUILD_TIMESTAMP		:=	$(strip $(shell date --utc '+%Y-%m-%d %T UTC'))
 
 TARGET				:=	${APP_TITLE}
 BUILD				:=	build
-SOURCES				:=	source source/core source/core/fatfs source/core/devoptab source/tasks source/utils source/views
+SOURCES				:=	source source/core source/core/devoptab source/core/devoptab/fatfs source/tasks source/utils source/views
 DATA				:=	data
 ICON				:=	romfs/icon/${APP_TITLE}.jpg
 INCLUDES			:=	include

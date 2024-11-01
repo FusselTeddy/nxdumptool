@@ -13,7 +13,6 @@ todo:
 
     others: check todo with grep
     others: dump verification via no-intro
-    others: fatfs browser for emmc partitions
 
 reminder:
 

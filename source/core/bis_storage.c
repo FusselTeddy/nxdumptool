@@ -46,7 +46,7 @@ const char *bisStorageGet##property##ByBisPartitionId(u8 bis_partition_id) { \
 /* Type definitions. */
 
 typedef struct {
-    u8 bis_partition_id;    ///< FsBisPartitionId.
+    u8 bis_partition_id;                ///< FsBisPartitionId.
     const char *gpt_name;
     const char *sysinit_name;
     const char *devoptab_mount_name;

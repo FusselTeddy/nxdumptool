@@ -10,8 +10,8 @@
 #include <core/nxdt_utils.h>
 #include <core/bis_storage.h>
 
-#include <core/fatfs/ff.h>		/* Obtains integer types */
-#include <core/fatfs/diskio.h>	/* Declarations of disk functions */
+#include <core/devoptab/fatfs/ff.h>		/* Obtains integer types */
+#include <core/devoptab/fatfs/diskio.h>	/* Declarations of disk functions */
 
 /*-----------------------------------------------------------------------*/
 /* Get Drive Status                                                      */

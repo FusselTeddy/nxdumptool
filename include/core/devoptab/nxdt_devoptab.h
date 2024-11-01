@@ -27,7 +27,7 @@
 #include "../pfs.h"
 #include "../hfs.h"
 #include "../romfs.h"
-#include "../fatfs/ff.h"
+#include "fatfs/ff.h"
 
 #ifdef __cplusplus
 extern "C" {

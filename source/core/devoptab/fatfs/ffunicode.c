@@ -23,7 +23,7 @@
 */
 
 
-#include <core/fatfs/ff.h>
+#include <core/devoptab/fatfs/ff.h>
 
 #if FF_USE_LFN != 0	/* This module will be blanked if in non-LFN configuration */
 
