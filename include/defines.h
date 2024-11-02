@@ -89,6 +89,9 @@
 #define TICKET_SUBDIR                   "Ticket"
 #define NCA_SUBDIR                      "NCA"
 #define NCA_FS_SUBDIR                   "NCA FS"
+#define SYSMMC_SUBDIR                   "sysMMC"
+#define EMUMMC_SUBDIR                   "emuMMC"
+#define SYSTEM_UPDATE_SUBDIR            "System Update"
 
 #define CONFIG_FILE_NAME                APP_TITLE "_config.json"
 #define DEFAULT_CONFIG_PATH             "romfs:/default_config.json"

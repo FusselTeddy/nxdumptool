@@ -2615,7 +2615,7 @@ static bool saveGameCardImage(void *userdata)
     }
 
     snprintf(path, MAX_ELEMENTS(path), " [%s][%s][%s].xci", prepend_key_area ? "KA" : "NKA", keep_certificate ? "C" : "NC", trim_dump ? "T" : "NT");
-    filename = generateOutputGameCardFileName("Gamecard", path, true);
+    filename = generateOutputGameCardFileName(GAMECARD_SUBDIR, path, true);
     if (!filename) goto end;
 
     if (dev_idx == 1)
@@ -2740,7 +2740,7 @@ static bool saveGameCardHeader(void *userdata)
     crc = crc32Calculate(&gc_header, sizeof(GameCardHeader));
     snprintf(path, MAX_ELEMENTS(path), " (Header) (%08X).bin", crc);
 
-    filename = generateOutputGameCardFileName("Gamecard", path, true);
+    filename = generateOutputGameCardFileName(GAMECARD_SUBDIR, path, true);
     if (!filename) goto end;
 
     if (!saveFileData(filename, &gc_header, sizeof(GameCardHeader))) goto end;
@@ -2774,7 +2774,7 @@ static bool saveGameCardCardInfo(void *userdata)
     crc = crc32Calculate(&gc_cardinfo, sizeof(GameCardInfo));
     snprintf(path, MAX_ELEMENTS(path), " (CardInfo) (%08X).bin", crc);
 
-    filename = generateOutputGameCardFileName("Gamecard", path, true);
+    filename = generateOutputGameCardFileName(GAMECARD_SUBDIR, path, true);
     if (!filename) goto end;
 
     if (!saveFileData(filename, &gc_cardinfo, sizeof(GameCardInfo))) goto end;
@@ -2808,7 +2808,7 @@ static bool saveGameCardCertificate(void *userdata)
     crc = crc32Calculate(&gc_cert, sizeof(FsGameCardCertificate));
     snprintf(path, MAX_ELEMENTS(path), " (Certificate) (%08X).bin", crc);
 
-    filename = generateOutputGameCardFileName("Gamecard", path, true);
+    filename = generateOutputGameCardFileName(GAMECARD_SUBDIR, path, true);
     if (!filename) goto end;
 
     if (!saveFileData(filename, &gc_cert, sizeof(FsGameCardCertificate))) goto end;
@@ -2836,7 +2836,7 @@ static bool saveGameCardInitialData(void *userdata)
     crc = crc32Calculate(&(gc_security_information.initial_data), sizeof(GameCardInitialData));
     snprintf(path, MAX_ELEMENTS(path), " (Initial Data) (%08X).bin", crc);
 
-    filename = generateOutputGameCardFileName("Gamecard", path, true);
+    filename = generateOutputGameCardFileName(GAMECARD_SUBDIR, path, true);
     if (!filename) goto end;
 
     if (!saveFileData(filename, &(gc_security_information.initial_data), sizeof(GameCardInitialData))) goto end;
@@ -2869,7 +2869,7 @@ static bool saveGameCardSpecificData(void *userdata)
     crc = crc32Calculate(&(gc_security_information.specific_data), sizeof(GameCardSpecificData));
     snprintf(path, MAX_ELEMENTS(path), " (Specific Data) (%08X).bin", crc);
 
-    filename = generateOutputGameCardFileName("Gamecard", path, true);
+    filename = generateOutputGameCardFileName(GAMECARD_SUBDIR, path, true);
     if (!filename) goto end;
 
     if (!saveFileData(filename, &(gc_security_information.specific_data), sizeof(GameCardSpecificData))) goto end;
@@ -2901,7 +2901,7 @@ static bool saveGameCardIdSet(void *userdata)
     crc = crc32Calculate(&id_set, sizeof(FsGameCardIdSet));
     snprintf(path, MAX_ELEMENTS(path), " (Card ID Set) (%08X).bin", crc);
 
-    filename = generateOutputGameCardFileName("Gamecard", path, true);
+    filename = generateOutputGameCardFileName(GAMECARD_SUBDIR, path, true);
     if (!filename) goto end;
 
     if (!saveFileData(filename, &id_set, sizeof(FsGameCardIdSet))) goto end;
@@ -2934,7 +2934,7 @@ static bool saveGameCardUid(void *userdata)
     crc = crc32Calculate(&(gc_security_information.specific_data.card_uid), sizeof(gc_security_information.specific_data.card_uid));
     snprintf(path, MAX_ELEMENTS(path), " (Card UID) (%08X).bin", crc);
 
-    filename = generateOutputGameCardFileName("Gamecard", path, true);
+    filename = generateOutputGameCardFileName(GAMECARD_SUBDIR, path, true);
     if (!filename) goto end;
 
     if (!saveFileData(filename, &(gc_security_information.specific_data.card_uid), sizeof(gc_security_information.specific_data.card_uid))) goto end;
@@ -2996,7 +2996,7 @@ static bool saveGameCardRawHfsPartition(HashFileSystemContext *hfs_ctx)
     consolePrint("raw %s hfs partition size: 0x%lX (%s)\n", hfs_ctx->name, hfs_ctx->size, size_str);
 
     snprintf(path, MAX_ELEMENTS(path), "/%s.hfs0", hfs_ctx->name);
-    filename = generateOutputGameCardFileName("HFS/Raw", path, true);
+    filename = generateOutputGameCardFileName(HFS_SUBDIR "/Raw", path, true);
     if (!filename) goto end;
 
     if (dev_idx == 1)
@@ -3146,7 +3146,7 @@ static bool browseGameCardHfsPartition(void *userdata)
 
     /* Generate output base path. */
     snprintf(subdir, MAX_ELEMENTS(subdir), "/%s", hfs_ctx.name);
-    base_out_path = generateOutputGameCardFileName("HFS/Extracted", subdir, true);
+    base_out_path = generateOutputGameCardFileName(HFS_SUBDIR "/Extracted", subdir, true);
     if (!base_out_path) goto end;
 
     /* Display file browser. */
@@ -3413,7 +3413,7 @@ static bool saveTicket(void *userdata)
     crc = crc32Calculate(tik.data, tik.size);
     snprintf(path, MAX_ELEMENTS(path), " (%08X).tik", crc);
 
-    filename = generateOutputTitleFileName(title_info, "Ticket", path);
+    filename = generateOutputTitleFileName(title_info, TICKET_SUBDIR, path);
     if (!filename) goto end;
 
     if (!saveFileData(filename, tik.data, tik.size)) goto end;
@@ -3471,7 +3471,7 @@ static bool saveNintendoContentArchive(void *userdata)
     utilsGenerateFormattedSizeString((double)shared_thread_data->total_size, size_str, sizeof(size_str));
     consolePrint("nca size: 0x%lX (%s)\n", shared_thread_data->total_size, size_str);
 
-    snprintf(subdir, MAX_ELEMENTS(subdir), "NCA/%s", nca_thread_data.nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
+    snprintf(subdir, MAX_ELEMENTS(subdir), NCA_SUBDIR "/%s", nca_thread_data.nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
     snprintf(path, MAX_ELEMENTS(path), "/%s.%s", nca_thread_data.nca_ctx->content_id_str, content_info->content_type == NcmContentType_Meta ? "cnmt.nca" : "nca");
 
     filename = generateOutputTitleFileName(title_info, subdir, path);
@@ -3655,7 +3655,7 @@ static bool browseNintendoContentArchiveFsSection(void *userdata)
 
         base_out_path = generateOutputLayeredFsFileName(title_id + nca_ctx->id_offset, NULL, section_type == NcaFsSectionType_PartitionFs ? "exefs" : "romfs");
     } else {
-        snprintf(subdir, MAX_ELEMENTS(subdir), "NCA FS/%s/Extracted", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
+        snprintf(subdir, MAX_ELEMENTS(subdir), NCA_FS_SUBDIR "/%s/Extracted", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
         snprintf(extension, MAX_ELEMENTS(extension), "/%s #%u/%u", titleGetNcmContentTypeName(nca_ctx->content_type), nca_ctx->id_offset, nca_fs_ctx->section_idx);
 
         TitleInfo *title_info = (title_id == g_ncaUserTitleInfo->meta_key.id ? g_ncaUserTitleInfo : g_ncaBasePatchTitleInfo);
@@ -3725,19 +3725,25 @@ end:
 static bool browseEmmcPartition(void *userdata)
 {
     u8 bis_partition_id = (userdata ? *((u8*)userdata) : 0);
-    const char *mount_name = NULL;
+    const char *gpt_name = NULL, *mount_name = NULL;
     char *base_out_path = NULL;
 
     bool success = false;
 
-    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System || !(mount_name = bisStorageGetMountNameByBisPartitionId(bis_partition_id)))
+    if (bis_partition_id < FsBisPartitionId_CalibrationFile || bis_partition_id > FsBisPartitionId_System)
     {
         consolePrint("invalid bis partition id! (%u)\n", bis_partition_id);
         goto end;
     }
 
+    if (!(gpt_name = bisStorageGetGptPartitionNameByBisPartitionId(bis_partition_id)) || !(mount_name = bisStorageGetMountNameByBisPartitionId(bis_partition_id)))
+    {
+        consolePrint("failed to get names for bis partition id! (%u)\n", bis_partition_id);
+        goto end;
+    }
+
     /* Generate output base path. */
-    base_out_path = generateOutputGameCardFileName(utilsGetAtmosphereEmummcStatus() ? "emuMMC" : "sysMMC", mount_name, false);
+    base_out_path = generateOutputGameCardFileName(utilsGetAtmosphereEmummcStatus() ? EMUMMC_SUBDIR : SYSMMC_SUBDIR, gpt_name, false);
     if (!base_out_path) goto end;
 
     /* Display file browser. */
@@ -4437,7 +4443,7 @@ static bool saveRawPartitionFsSection(PartitionFileSystemContext *pfs_ctx, bool 
 
         filename = generateOutputLayeredFsFileName(title_id + nca_ctx->id_offset, NULL, "exefs.nsp");
     } else {
-        snprintf(subdir, MAX_ELEMENTS(subdir), "NCA FS/%s/Raw", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
+        snprintf(subdir, MAX_ELEMENTS(subdir), NCA_FS_SUBDIR "/%s/Raw", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
         snprintf(path, MAX_ELEMENTS(path), "/%s #%u/%u.nsp", titleGetNcmContentTypeName(nca_ctx->content_type), nca_ctx->id_offset, nca_fs_ctx->section_idx);
 
         TitleInfo *title_info = (title_id == g_ncaUserTitleInfo->meta_key.id ? g_ncaUserTitleInfo : g_ncaBasePatchTitleInfo);
@@ -4597,7 +4603,7 @@ static bool saveRawRomFsSection(RomFileSystemContext *romfs_ctx, bool use_layere
 
         filename = generateOutputLayeredFsFileName(title_id + nca_ctx->id_offset, NULL, "romfs.bin");
     } else {
-        snprintf(subdir, MAX_ELEMENTS(subdir), "NCA FS/%s/Raw", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
+        snprintf(subdir, MAX_ELEMENTS(subdir), NCA_FS_SUBDIR "/%s/Raw", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
         snprintf(path, MAX_ELEMENTS(path), "/%s #%u/%u.bin", titleGetNcmContentTypeName(nca_ctx->content_type), nca_ctx->id_offset, nca_fs_ctx->section_idx);
 
         TitleInfo *title_info = (title_id == g_ncaUserTitleInfo->meta_key.id ? g_ncaUserTitleInfo : g_ncaBasePatchTitleInfo);
@@ -4896,7 +4902,7 @@ static void extractedHfsReadThreadFunc(void *arg)
     buf2 = usbAllocatePageAlignedBuffer(BLOCK_SIZE);
 
     snprintf(hfs_path, MAX_ELEMENTS(hfs_path), "/%s", hfs_ctx->name);
-    filename = generateOutputGameCardFileName("HFS/Extracted", hfs_path, true);
+    filename = generateOutputGameCardFileName(HFS_SUBDIR "/Extracted", hfs_path, true);
     filename_len = (filename ? strlen(filename) : 0);
 
     if (!shared_thread_data->total_size || !hfs_entry_count || !buf1 || !buf2 || !filename)
@@ -5278,7 +5284,7 @@ static void extractedPartitionFsReadThreadFunc(void *arg)
 
         filename = generateOutputLayeredFsFileName(title_id + nca_ctx->id_offset, NULL, "exefs");
     } else {
-        snprintf(subdir, MAX_ELEMENTS(subdir), "NCA FS/%s/Extracted", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
+        snprintf(subdir, MAX_ELEMENTS(subdir), NCA_FS_SUBDIR "/%s/Extracted", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
         snprintf(pfs_path, MAX_ELEMENTS(pfs_path), "/%s #%u/%u", titleGetNcmContentTypeName(nca_ctx->content_type), nca_ctx->id_offset, nca_fs_ctx->section_idx);
 
         TitleInfo *title_info = (title_id == g_ncaUserTitleInfo->meta_key.id ? g_ncaUserTitleInfo : g_ncaBasePatchTitleInfo);
@@ -5596,7 +5602,7 @@ static void extractedRomFsReadThreadFunc(void *arg)
 
         filename = generateOutputLayeredFsFileName(title_id + nca_ctx->id_offset, NULL, "romfs");
     } else {
-        snprintf(subdir, MAX_ELEMENTS(subdir), "NCA FS/%s/Extracted", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
+        snprintf(subdir, MAX_ELEMENTS(subdir), NCA_FS_SUBDIR "/%s/Extracted", nca_ctx->storage_id == NcmStorageId_BuiltInSystem ? "System" : "User");
         snprintf(romfs_path, MAX_ELEMENTS(romfs_path), "/%s #%u/%u", titleGetNcmContentTypeName(nca_ctx->content_type), nca_ctx->id_offset, nca_fs_ctx->section_idx);
 
         TitleInfo *title_info = (title_id == g_ncaUserTitleInfo->meta_key.id ? g_ncaUserTitleInfo : g_ncaBasePatchTitleInfo);
@@ -6193,7 +6199,7 @@ static void systemUpdateReadThreadFunc(void *arg)
 
     snprintf(sys_upd_path, MAX_ELEMENTS(sys_upd_path), "/%.*s (%s)", (int)sizeof(sys_upd_dump_ctx->version_file.display_title),
                                                                      sys_upd_dump_ctx->version_file.display_title, utilsIsDevelopmentUnit() ? "Dev" : "Prod");
-    filename = generateOutputGameCardFileName("System Update", sys_upd_path, false);
+    filename = generateOutputGameCardFileName(SYSTEM_UPDATE_SUBDIR, sys_upd_path, false);
     filename_len = (filename ? strlen(filename) : 0);
 
     if (!shared_thread_data->total_size || !buf1 || !buf2 || !filename)
@@ -6627,7 +6633,7 @@ static void nspThreadFunc(void *arg)
     }
 
     /* Generate output path. */
-    filename = generateOutputTitleFileName(title_info, "NSP", ".nsp");
+    filename = generateOutputTitleFileName(title_info, NSP_SUBDIR, ".nsp");
     if (!filename) goto end;
 
     /* Get free space on output storage. */

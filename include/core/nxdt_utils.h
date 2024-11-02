@@ -75,11 +75,11 @@ void utilsCloseResources(void);
 /// Returns a pointer to the application launch path.
 const char *utilsGetLaunchPath(void);
 
-/// Returns the nxlink socket descriptor, or -1 if an nxlink connection couldn't be established.
-int utilsGetNxLinkFileDescriptor(void);
-
 /// Returns a pointer to the FsFileSystem object for the SD card.
 FsFileSystem *utilsGetSdCardFileSystemObject(void);
+
+/// Returns the nxlink socket descriptor, or -1 if an nxlink connection couldn't be established.
+int utilsGetNxLinkFileDescriptor(void);
 
 /// Commits SD card filesystem changes.
 /// Must be used after closing a file handle from the SD card.

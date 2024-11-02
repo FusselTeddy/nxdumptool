@@ -1957,19 +1957,19 @@ static TitleApplicationMetadata *titleGenerateUserMetadataEntryFromControlNca(Ti
         return NULL;
     }
 
-    u64 control_data_size = 0, title_id = title_info->meta_key.id, app_id = titleGetApplicationIdByContentMetaKey(&(title_info->meta_key));
+    u64 control_data_size = 0, app_id = titleGetApplicationIdByContentMetaKey(&(title_info->meta_key));
     TitleApplicationMetadata *app_metadata = NULL;
 
     /* Retrieve application control data from Control NCA. */
     if (!titleGetApplicationControlDataFromControlNca(title_info, g_nsAppControlData, &control_data_size))
     {
-        LOG_MSG_ERROR("Failed to retrieve application control data for %016lX!", title_id);
+        LOG_MSG_ERROR("Failed to retrieve application control data for %016lX!", title_info->meta_key.id);
         goto end;
     }
 
     /* Initialize application metadata entry using the control data we just retrieved. */
     app_metadata = titleInitializeUserMetadataEntryFromControlData(app_id, g_nsAppControlData, control_data_size);
-    if (!app_metadata) LOG_MSG_ERROR("Failed to generate application metadata entry for %016lX!", title_id);
+    if (!app_metadata) LOG_MSG_ERROR("Failed to generate application metadata entry for %016lX!", title_info->meta_key.id);
 
 end:
     return app_metadata;
@@ -2018,7 +2018,6 @@ static bool titleGetApplicationControlDataFromControlNca(TitleInfo *title_info, 
         return false;
     }
 
-    u64 title_id = title_info->meta_key.id;
     u8 storage_id = title_info->storage_id;
     u8 hfs_partition_type = (storage_id == NcmStorageId_GameCard ? HashFileSystemPartitionType_Secure : HashFileSystemPartitionType_None);
 
@@ -2033,7 +2032,7 @@ static bool titleGetApplicationControlDataFromControlNca(TitleInfo *title_info, 
 
     bool success = false;
 
-    LOG_MSG_DEBUG("Retrieving application control data for %s %016lX in %s...", titleGetNcmContentMetaTypeName(title_info->meta_key.type), title_id, \
+    LOG_MSG_DEBUG("Retrieving application control data for %s %016lX in %s...", titleGetNcmContentMetaTypeName(title_info->meta_key.type), title_info->meta_key.id, \
                                                                                 titleGetNcmStorageIdName(title_info->storage_id));
 
     /* Allocate memory for the NCA context. */
@@ -2047,14 +2046,14 @@ static bool titleGetApplicationControlDataFromControlNca(TitleInfo *title_info, 
     /* Initialize NCA context. */
     if (!ncaInitializeContext(nca_ctx, storage_id, hfs_partition_type, &(title_info->meta_key), nacp_content, NULL))
     {
-        LOG_MSG_ERROR("Failed to initialize NCA context for Control NCA from %016lX!", title_id);
+        LOG_MSG_ERROR("Failed to initialize NCA context for Control NCA from %016lX!", title_info->meta_key.id);
         goto end;
     }
 
     /* Initialize NACP context. */
     if (!nacpInitializeContext(&nacp_ctx, nca_ctx))
     {
-        LOG_MSG_ERROR("Failed to initialize NACP context for %016lX!", title_id);
+        LOG_MSG_ERROR("Failed to initialize NACP context for %016lX!", title_info->meta_key.id);
         goto end;
     }
 
@@ -2076,7 +2075,7 @@ static bool titleGetApplicationControlDataFromControlNca(TitleInfo *title_info, 
         if (cur_title == (NacpTitle*)lang_entry)
         {
             lang_id = i;
-            LOG_MSG_DEBUG("Selected language ID for %016lX: %u (%s).", title_id, lang_id, nacpGetLanguageString(lang_id));
+            LOG_MSG_DEBUG("Selected language ID for %016lX: %u (%s).", title_info->meta_key.id, lang_id, nacpGetLanguageString(lang_id));
             break;
         }
     }
@@ -3310,14 +3309,13 @@ static char *titleGetDisplayVersionString(TitleInfo *title_info)
         return NULL;
     }
 
-    u64 title_id = title_info->meta_key.id;
     u8 storage_id = title_info->storage_id, hfs_partition_type = (storage_id == NcmStorageId_GameCard ? HashFileSystemPartitionType_Secure : 0);
     NcaContext *nca_ctx = NULL;
     NacpContext nacp_ctx = {0};
     char display_version[0x11] = {0}, *str = NULL;
 
     LOG_MSG_DEBUG("Retrieving display version string for %s \"%s\" (%016lX) in %s...", titleGetNcmContentMetaTypeName(title_info->meta_key.type), \
-                                                                                       title_info->app_metadata->lang_entry.name, title_id, \
+                                                                                       title_info->app_metadata->lang_entry.name, title_info->meta_key.id, \
                                                                                        titleGetNcmStorageIdName(title_info->storage_id));
 
     /* Allocate memory for the NCA context. */
@@ -3331,14 +3329,14 @@ static char *titleGetDisplayVersionString(TitleInfo *title_info)
     /* Initialize NCA context. */
     if (!ncaInitializeContext(nca_ctx, storage_id, hfs_partition_type, &(title_info->meta_key), nacp_content, NULL))
     {
-        LOG_MSG_ERROR("Failed to initialize NCA context for Control NCA from %016lX!", title_id);
+        LOG_MSG_ERROR("Failed to initialize NCA context for Control NCA from %016lX!", title_info->meta_key.id);
         goto end;
     }
 
     /* Initialize NACP context. */
     if (!nacpInitializeContext(&nacp_ctx, nca_ctx))
     {
-        LOG_MSG_ERROR("Failed to initialize NACP context for %016lX!", title_id);
+        LOG_MSG_ERROR("Failed to initialize NACP context for %016lX!", title_info->meta_key.id);
         goto end;
     }
 
@@ -3349,13 +3347,13 @@ static char *titleGetDisplayVersionString(TitleInfo *title_info)
     /* Check version string length. */
     if (!*display_version)
     {
-        LOG_MSG_ERROR("Display version string from %016lX is empty!", title_id);
+        LOG_MSG_ERROR("Display version string from %016lX is empty!", title_info->meta_key.id);
         goto end;
     }
 
     /* Duplicate version string. */
     str = strdup(display_version);
-    if (!str) LOG_MSG_ERROR("Failed to duplicate version string from %016lX!", title_id);
+    if (!str) LOG_MSG_ERROR("Failed to duplicate version string from %016lX!", title_info->meta_key.id);
 
 end:
     nacpFreeContext(&nacp_ctx);

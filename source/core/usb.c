@@ -724,7 +724,9 @@ static bool usbSendCommand(void)
     /* Write command header first. */
     if (!usbWrite(cmd_header, sizeof(UsbCommandHeader)))
     {
+#if LOG_LEVEL <= LOG_LEVEL_ERROR
         if (!g_usbDetectionThreadExitFlag) LOG_MSG_ERROR("Failed to write header for type 0x%X command!", cmd);
+#endif
         status = UsbStatusType_WriteCommandFailed;
         goto end;
     }

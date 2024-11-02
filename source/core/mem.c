@@ -101,14 +101,12 @@ static bool memRetrieveProgramMemory(MemoryLocation *location, bool is_segment)
     /* Clear output MemoryLocation element. */
     memFreeMemoryLocation(location);
 
-#if LOG_LEVEL < LOG_LEVEL_NONE
     /* LOG_*() macros will be useless if the target program is the FS sysmodule. */
     /* This is because any FS I/O operation *will* lock up the console while FS itself is being debugged. */
     /* So we'll just log data to a temporary buffer using LOG_MSG_BUF_*() macros, then write it all out to the logfile after calling svcCloseHandle(). */
     /* However, we must prevent other threads from logging data as well in order to avoid a lock up, so we'll temporarily lock the logfile mutex. */
     /* We don't need to take care of manually (re)allocating memory for our buffer -- the log handler ABI takes care of that for us. */
     logControlMutex(true);
-#endif
 
     /* Retrieve debug handle by program ID. */
     if (!memRetrieveDebugHandleFromProgramById(&debug_handle, location->program_id))
@@ -139,7 +137,6 @@ static bool memRetrieveProgramMemory(MemoryLocation *location, bool is_segment)
                 /* Filter out unwanted memory pages. */
                 if (MEM_INVALID_SEGMENT_PAGE_TYPE(mem_type) || mem_info.attr || (mem_info.perm & Perm_Rx) != Perm_Rx) continue;
 
-#if LOG_LEVEL == LOG_LEVEL_DEBUG
                 MEMLOG_DEBUG("svcQueryDebugProcessMemory info (FS .text segment lookup) (program %016lX, page 0x%X, debug handle 0x%X):\r\n" \
                              "- addr: 0x%lX\r\n" \
                              "- size: 0x%lX\r\n" \
@@ -150,7 +147,6 @@ static bool memRetrieveProgramMemory(MemoryLocation *location, bool is_segment)
                              "- device_refcount: 0x%X", \
                              location->program_id, page_info, debug_handle, mem_info.addr, mem_info.size, mem_info.type, mem_info.attr, mem_info.perm, \
                              mem_info.ipc_refcount, mem_info.device_refcount);
-#endif
 
                 /* Update .text segment address. */
                 last_text_addr = mem_info.addr;
@@ -182,7 +178,6 @@ static bool memRetrieveProgramMemory(MemoryLocation *location, bool is_segment)
             (is_segment && (MEM_INVALID_SEGMENT_PAGE_TYPE(mem_type) || !(((segment <<= 1) >> 1) & location->mask))) || \
             (!is_segment && location->program_id == FS_SYSMODULE_TID && MEM_INVALID_FS_PAGE_TYPE(mem_type))) continue;
 
-#if LOG_LEVEL == LOG_LEVEL_DEBUG
         MEMLOG_DEBUG("svcQueryDebugProcessMemory info (program %016lX, page 0x%X, debug handle 0x%X):\r\n" \
                      "- addr: 0x%lX\r\n" \
                      "- size: 0x%lX\r\n" \
@@ -193,7 +188,6 @@ static bool memRetrieveProgramMemory(MemoryLocation *location, bool is_segment)
                      "- device_refcount: 0x%X", \
                      location->program_id, page_info, debug_handle, mem_info.addr, mem_info.size, mem_info.type, mem_info.attr, mem_info.perm, \
                      mem_info.ipc_refcount, mem_info.device_refcount);
-#endif
 
         /* Reallocate data buffer. */
         tmp = realloc(location->data, location->data_size + mem_info.size);
@@ -224,10 +218,8 @@ end:
     /* Close debug handle. */
     if (debug_handle != INVALID_HANDLE) svcCloseHandle(debug_handle);
 
-#if LOG_LEVEL < LOG_LEVEL_NONE
     /* Unlock logfile mutex. */
     logControlMutex(false);
-#endif
 
     if (success && (!location->data || !location->data_size))
     {

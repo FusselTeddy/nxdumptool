@@ -97,6 +97,11 @@ static bool g_exosphereIsEmummc = false;
 
 static void _utilsGetLaunchPath(void);
 
+static bool _utilsGetSdCardFileSystemObject(void);
+
+static void _utilsGetNxLinkFileDescriptor(void);
+static void utilsCloseNxLinkFileDescriptor(void);
+
 static bool utilsGetExosphereApiVersion(void);
 static bool utilsGetExosphereEmummcType(void);
 
@@ -107,6 +112,16 @@ static bool _utilsGetProductModel(void);
 static bool utilsGetDevelopmentUnitFlag(void);
 
 static bool utilsGetTerraUnitFlag(void);
+
+#if LOG_LEVEL <= LOG_LEVEL_INFO
+static void utilsLogEnvironmentInfo(void);
+#endif
+
+static bool utilsEnsureCorrectLaunchPath(void);
+
+static void utilsEnableVideoRecording(void);
+
+static void utilsPrintInitializationFailureMessage(void);
 
 static void utilsOverclockSystem(bool overclock);
 static void utilsOverclockSystemAppletHook(AppletHookType hook, void *param);
@@ -133,31 +148,17 @@ bool utilsInitializeResources(void)
         /* Retrieve pointer to the application launch path. */
         _utilsGetLaunchPath();
 
-        /* Retrieve pointer to the SD card FsFileSystem element. */
-        if (!(g_sdCardFileSystem = fsdevGetDeviceFileSystem(DEVOPTAB_SDMC_DEVICE)))
-        {
-            LOG_MSG_ERROR("Failed to retrieve FsFileSystem object for the SD card!");
-            break;
-        }
+        /* Retrieve pointer to the SD card's FsFileSystem service object. */
+        if (!_utilsGetSdCardFileSystemObject()) break;
 
-        /*FsFileSystemAttribute fs_attr = {0};
-        if (R_SUCCEEDED(fsFsGetFileSystemAttribute(g_sdCardFileSystem, &fs_attr)))
-        {
-            LOG_DATA_INFO(&fs_attr, sizeof(FsFileSystemAttribute), "SD card FS attributes:");
-        }*/
+        LOG_MSG_INFO(APP_TITLE " v" APP_VERSION " starting (" GIT_REV "). Built on " BUILD_TIMESTAMP ".");
 
         /* Initialize needed services. */
         if (!servicesInitialize()) break;
 
-        /* Check if a valid nxlink host IP address was set by libnx. */
-        /* If so, initialize nxlink connection without redirecting stdout and/or stderr. */
-        if (__nxlink_host.s_addr != 0 && __nxlink_host.s_addr != INADDR_NONE) g_nxLinkSocketFd = nxlinkConnectToHost(false, false);
-
-#if LOG_LEVEL <= LOG_LEVEL_INFO
-        /* Log info messages. */
-        LOG_MSG_INFO(APP_TITLE " v" APP_VERSION " starting (" GIT_REV "). Built on " BUILD_TIMESTAMP ".");
-        if (g_nxLinkSocketFd >= 0) LOG_MSG_INFO("nxlink enabled! Host IP address: %s.", inet_ntoa(__nxlink_host));
-#endif
+        /* Get nxlink file descriptor. */
+        /* If available, it will be used by our logging interface. */
+        _utilsGetNxLinkFileDescriptor();
 
         /* Retrieve Exosphère API version. */
         if (!utilsGetExosphereApiVersion())
@@ -189,50 +190,12 @@ bool utilsInitializeResources(void)
         g_programAppletType = appletGetAppletType();
 
 #if LOG_LEVEL <= LOG_LEVEL_INFO
-        /* Log info messages. */
-        u32 hos_version = hosversionGet();
-
-        LOG_MSG_INFO("Console info:\r\n" \
-                     "- Horizon OS version: %u.%u.%u.\r\n" \
-                     "- CFW: %s.\r\n" \
-                     "- eMMC type: %s.\r\n" \
-                     "- SoC type: %s.\r\n" \
-                     "- Development unit: %s.\r\n" \
-                     "- Terra flag: %s.\r\n" \
-                     "- Execution mode: %s.", \
-                     HOSVER_MAJOR(hos_version), HOSVER_MINOR(hos_version), HOSVER_MICRO(hos_version), \
-                     (g_customFirmwareType == UtilsCustomFirmwareType_Atmosphere ? "Atmosphère" : (g_customFirmwareType == UtilsCustomFirmwareType_SXOS ? "SX OS" : g_customFirmwareType == UtilsCustomFirmwareType_ReiNX ? "ReiNX" : "Unknown")), \
-                     g_exosphereIsEmummc ? "emuMMC" : "sysMMC", \
-                     utilsIsMarikoUnit() ? "Mariko" : "Erista", \
-                     g_isDevUnit ? "yes" : "no", \
-                     g_isTerraUnit ? "yes" : "no", \
-                     utilsIsAppletMode() ? "applet" : "title override");
-
-        LOG_MSG_INFO("Exosphère API version info:\r\n" \
-                     "- Release version: %u.%u.%u.\r\n" \
-                     "- PKG1 key generation: %u (0x%02X).\r\n" \
-                     "- Target firmware: %u.%u.%u.", \
-                     g_exosphereApiVersion.ams_ver_major, g_exosphereApiVersion.ams_ver_minor, g_exosphereApiVersion.ams_ver_micro, \
-                     g_exosphereApiVersion.key_generation, !g_exosphereApiVersion.key_generation ? g_exosphereApiVersion.key_generation : (g_exosphereApiVersion.key_generation + 1), \
-                     g_exosphereApiVersion.target_firmware.major, g_exosphereApiVersion.target_firmware.minor, g_exosphereApiVersion.target_firmware.micro);
+        /* Log environment information. */
+        utilsLogEnvironmentInfo();
 #endif
 
-        if (g_appLaunchPath)
-        {
-            LOG_MSG_INFO("Launch path: \"%s\".", g_appLaunchPath);
-
-            /* Move NRO if the launch path isn't the right one, then return. */
-            /* TODO: uncomment this block whenever we are ready for a release. */
-            /*if (strcmp(g_appLaunchPath, NRO_PATH) != 0)
-            {
-                utilsCreateDirectoryTree(NRO_PATH, false);
-                remove(NRO_PATH);
-                rename(g_appLaunchPath, NRO_PATH);
-
-                LOG_MSG_INFO("Moved NRO to \"%s\". Please reload the application.", NRO_PATH);
-                break;
-            }*/
-        }
+        /* Make sure the right launch path is being used. */
+        if (!utilsEnsureCorrectLaunchPath()) break;
 
         /* Initialize HTTP interface. */
         /* cURL must be initialized before starting any other threads. */
@@ -273,7 +236,7 @@ bool utilsInitializeResources(void)
         rc = romfsInit();
         if (R_FAILED(rc))
         {
-            LOG_MSG_ERROR("Failed to mount " APP_TITLE "'s RomFS container!");
+            LOG_MSG_ERROR("Failed to mount " APP_TITLE "'s RomFS container! (0x%X).", rc);
             break;
         }
 
@@ -286,48 +249,15 @@ bool utilsInitializeResources(void)
         /* Initialize eMMC BIS storage interface. */
         if (!bisStorageInitialize()) break;
 
-        /* Enable video recording if we're running under title override mode. */
-        if (!utilsIsAppletMode())
-        {
-            bool flag = false;
-            rc = appletIsGamePlayRecordingSupported(&flag);
-            if (R_SUCCEEDED(rc) && flag)
-            {
-                rc = appletInitializeGamePlayRecording();
-                if (R_FAILED(rc)) LOG_MSG_ERROR("appletInitializeGamePlayRecording failed! (0x%X).", rc);
-            } else {
-                LOG_MSG_ERROR("appletIsGamePlayRecordingSupported returned [0x%X, %u].", rc, flag);
-            }
-        }
+        /* Enable video recording whenever possible. */
+        utilsEnableVideoRecording();
 
         /* Update flags. */
         ret = g_resourcesInit = true;
     }
 
-    if (!ret)
-    {
-        char *msg = NULL;
-        size_t msg_size = 0;
-
-        /* Generate error message. */
-        utilsAppendFormattedStringToBuffer(&msg, &msg_size, "An error occurred while initializing resources.");
-
-#if LOG_LEVEL <= LOG_LEVEL_ERROR
-        /* Get last log message. */
-        char *log_msg = logGetLastMessage();
-        if (log_msg)
-        {
-            utilsAppendFormattedStringToBuffer(&msg, &msg_size, "\n\n%s", log_msg);
-            free(log_msg);
-        }
-#endif
-
-        /* Print error message. */
-        utilsPrintConsoleError(msg);
-
-        /* Free error message. */
-        if (msg) free(msg);
-    }
+    /* Print error message, if applicable. */
+    if (!ret) utilsPrintInitializationFailureMessage();
 
     return ret;
 }
@@ -384,27 +314,21 @@ void utilsCloseResources(void)
         httpExit();
 
         /* Close nxlink socket. */
-        if (g_nxLinkSocketFd >= 0)
-        {
-            close(g_nxLinkSocketFd);
-            g_nxLinkSocketFd = -1;
-        }
+        utilsCloseNxLinkFileDescriptor();
 
         /* Close initialized services. */
         servicesClose();
 
         /* Replace application NRO (if needed). */
         /* TODO: uncomment this block whenever we're ready for a release. */
-        /*if (g_appUpdated)
+        /*if (g_resourcesInit && g_appUpdated)
         {
             remove(NRO_PATH);
             rename(NRO_TMP_PATH, NRO_PATH);
         }*/
 
-#if LOG_LEVEL <= LOG_LEVEL_ERROR
         /* Close logfile. */
         logCloseLogFile();
-#endif
 
         /* Unlock applet exit. */
         appletUnlockExit();
@@ -418,14 +342,14 @@ const char *utilsGetLaunchPath(void)
     return g_appLaunchPath;
 }
 
-int utilsGetNxLinkFileDescriptor(void)
-{
-    return g_nxLinkSocketFd;
-}
-
 FsFileSystem *utilsGetSdCardFileSystemObject(void)
 {
     return g_sdCardFileSystem;
+}
+
+int utilsGetNxLinkFileDescriptor(void)
+{
+    return g_nxLinkSocketFd;
 }
 
 bool utilsCommitSdCardFileSystemChanges(void)
@@ -1384,6 +1308,32 @@ static void _utilsGetLaunchPath(void)
     }
 }
 
+static bool _utilsGetSdCardFileSystemObject(void)
+{
+    g_sdCardFileSystem = fsdevGetDeviceFileSystem(DEVOPTAB_SDMC_DEVICE);
+    return (g_sdCardFileSystem != NULL);
+}
+
+static void _utilsGetNxLinkFileDescriptor(void)
+{
+    /* Check if a valid nxlink host IP address was set by libnx. */
+    if (__nxlink_host.s_addr == 0 || __nxlink_host.s_addr == INADDR_NONE) return;
+
+    /* Initialize nxlink connection without redirecting stdout nor stderr. */
+    g_nxLinkSocketFd = nxlinkConnectToHost(false, false);
+
+#if LOG_LEVEL <= LOG_LEVEL_INFO
+    if (g_nxLinkSocketFd >= 0) LOG_MSG_INFO("nxlink enabled! Host IP address: %s.", inet_ntoa(__nxlink_host));
+#endif
+}
+
+static void utilsCloseNxLinkFileDescriptor(void)
+{
+    if (g_nxLinkSocketFd < 0) return;
+    close(g_nxLinkSocketFd);
+    g_nxLinkSocketFd = -1;
+}
+
 /* SMC config item available in Atmosphère and Atmosphère-based CFWs. */
 static bool utilsGetExosphereApiVersion(void)
 {
@@ -1463,6 +1413,101 @@ static bool utilsGetTerraUnitFlag(void)
     }
 
     return R_SUCCEEDED(rc);
+}
+
+#if LOG_LEVEL <= LOG_LEVEL_INFO
+static void utilsLogEnvironmentInfo(void)
+{
+    u32 hos_version = hosversionGet();
+
+    LOG_MSG_INFO("Console info:\r\n" \
+                 "- Horizon OS version: %u.%u.%u.\r\n" \
+                 "- CFW: %s.\r\n" \
+                 "- eMMC type: %s.\r\n" \
+                 "- SoC type: %s.\r\n" \
+                 "- Development unit: %s.\r\n" \
+                 "- Terra flag: %s.\r\n" \
+                 "- Execution mode: %s.", \
+                 HOSVER_MAJOR(hos_version), HOSVER_MINOR(hos_version), HOSVER_MICRO(hos_version), \
+                 (g_customFirmwareType == UtilsCustomFirmwareType_Atmosphere ? "Atmosphère" : (g_customFirmwareType == UtilsCustomFirmwareType_SXOS ? "SX OS" : g_customFirmwareType == UtilsCustomFirmwareType_ReiNX ? "ReiNX" : "Unknown")), \
+                 g_exosphereIsEmummc ? "emuMMC" : "sysMMC", \
+                 utilsIsMarikoUnit() ? "Mariko" : "Erista", \
+                 g_isDevUnit ? "yes" : "no", \
+                 g_isTerraUnit ? "yes" : "no", \
+                 utilsIsAppletMode() ? "applet" : "title override");
+
+    LOG_MSG_INFO("Exosphère API version info:\r\n" \
+                 "- Release version: %u.%u.%u.\r\n" \
+                 "- PKG1 key generation: %u (0x%02X).\r\n" \
+                 "- Target firmware: %u.%u.%u.", \
+                 g_exosphereApiVersion.ams_ver_major, g_exosphereApiVersion.ams_ver_minor, g_exosphereApiVersion.ams_ver_micro, \
+                 g_exosphereApiVersion.key_generation, !g_exosphereApiVersion.key_generation ? g_exosphereApiVersion.key_generation : (g_exosphereApiVersion.key_generation + 1), \
+                 g_exosphereApiVersion.target_firmware.major, g_exosphereApiVersion.target_firmware.minor, g_exosphereApiVersion.target_firmware.micro);
+}
+#endif
+
+static bool utilsEnsureCorrectLaunchPath(void)
+{
+    if (!g_appLaunchPath) return true;
+
+    LOG_MSG_INFO("Launch path: \"%s\".", g_appLaunchPath);
+
+    /* Move NRO if the launch path isn't the right one, then return. */
+    /* TODO: uncomment this block whenever we are ready for a release. */
+    /*if (strcasecmp(g_appLaunchPath, NRO_PATH) != 0)
+    {
+        utilsCreateDirectoryTree(NRO_PATH, false);
+        remove(NRO_PATH);
+        rename(g_appLaunchPath, NRO_PATH);
+
+        LOG_MSG_INFO("Moved NRO to \"%s\". Please reload the application.", NRO_PATH);
+        return false;
+    }*/
+
+   return true;
+}
+
+static void utilsEnableVideoRecording(void)
+{
+    /* Make sure we're running under title override mode. */
+    if (utilsIsAppletMode()) return;
+
+    Result rc = 0;
+    bool flag = false;
+
+    /* Check if video recording is supported at all. */
+    rc = appletIsGamePlayRecordingSupported(&flag);
+    if (R_SUCCEEDED(rc) && flag)
+    {
+        /* Try to enable video recording. */
+        rc = appletInitializeGamePlayRecording();
+        if (R_FAILED(rc)) LOG_MSG_ERROR("appletInitializeGamePlayRecording failed! (0x%X).", rc);
+    } else {
+        LOG_MSG_ERROR("appletIsGamePlayRecordingSupported returned [0x%X, %u].", rc, flag);
+    }
+}
+
+static void utilsPrintInitializationFailureMessage(void)
+{
+    char *msg = NULL;
+    size_t msg_size = 0;
+
+    /* Generate error message. */
+    utilsAppendFormattedStringToBuffer(&msg, &msg_size, "An error occurred while initializing resources.");
+
+    /* Get last log message. */
+    char *log_msg = logGetLastMessage();
+    if (log_msg)
+    {
+        utilsAppendFormattedStringToBuffer(&msg, &msg_size, "\n\n%s", log_msg);
+        free(log_msg);
+    }
+
+    /* Print error message. */
+    utilsPrintConsoleError(msg);
+
+    /* Free error message. */
+    if (msg) free(msg);
 }
 
 static void utilsOverclockSystem(bool overclock)

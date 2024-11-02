@@ -142,6 +142,15 @@ void logControlMutex(bool lock);
 #define LOG_MSG_BUF_ERROR(dst, dst_size, fmt, ...)          do {} while(0)
 #define LOG_DATA_ERROR(data, data_size, fmt, ...)           do {} while(0)
 
+#define logWriteStringToLogFile(...)                        do {} while(0)
+#define logWriteFormattedStringToLogFile(...)               do {} while(0)
+#define logWriteFormattedStringToBuffer(...)                do {} while(0)
+#define logWriteBinaryDataToLogFile(...)                    do {} while(0)
+#define logFlushLogFile(...)                                do {} while(0)
+#define logCloseLogFile(...)                                do {} while(0)
+#define logGetLastMessage(...)                              NULL
+#define logControlMutex(...)                                do {} while(0)
+
 #endif  /* (LOG_LEVEL >= LOG_LEVEL_DEBUG) && (LOG_LEVEL < LOG_LEVEL_NONE) */
 
 #ifdef __cplusplus
